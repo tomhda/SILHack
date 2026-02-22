@@ -1,102 +1,82 @@
 # SILHack
 
-Chrome extension that remaps send keys for multiple chat services.
-複数チャットサービスの送信キー挙動を変更する Chrome 拡張です。
+複数のチャットサービスで、送信キーの挙動をそろえる Chrome 拡張です。  
+基本方針は次の 2 点です。
 
-## LLM Quick Context
-- Goal: Make Enter insert a newline, and Ctrl/Cmd+Enter send messages.
-- Targets: ChatGPT, Gemini, Perplexity, Messenger.
-- Chatwork: tag insert buttons only.
-- Entry points: `SILHack/manifest.json`, `SILHack/js/content.js`, `SILHack/js/chatwork_tags.js`.
+- `Enter` で改行
+- `Ctrl+Enter` / `Cmd+Enter` で送信
 
-## クイック概要（日本語）
-- 目的: Enter で改行、Ctrl/Cmd+Enter で送信。
-- 対応先: ChatGPT / Gemini / Perplexity / Messenger。
-- Chatwork: タグ挿入ボタンのみ。
-- 主要ファイル: `SILHack/manifest.json`, `SILHack/js/content.js`, `SILHack/js/chatwork_tags.js`。
+あわせて、Gemini のモード自動切り替えと Chatwork のタグ挿入補助を提供します。
 
-## Features
-- Enter -> newline in supported inputs.
-- Ctrl+Enter or Cmd+Enter -> send.
-- Works across textarea and contenteditable inputs.
-- Gemini auto-selects the smartest available mode (PRO > Thinking > Fast).
-- Fallback send strategy: click send button, submit form, dispatch Enter.
-- Chatwork tag buttons for quick markup insertion.
+## できること
 
-## 機能
-- 対応入力欄では Enter で改行。
-- Ctrl+Enter または Cmd+Enter で送信。
-- `textarea` と `contenteditable` の両方に対応。
-- Gemini は利用可能な中で最も賢いモード（PRO > 思考 > 高速）を自動選択。
-- 送信のフォールバック: 送信ボタンクリック、form submit、Enter イベント送出。
-- Chatwork ではタグ挿入ボタンを提供。
-
-## Supported Sites
-- Chatwork (tag buttons): `chatwork.com`
-- ChatGPT: `chat.openai.com`, `chatgpt.com`
-- Gemini: `gemini.google.com`
-- Messenger: `messenger.com`
-- Perplexity: `perplexity.ai`
+- `Enter` で改行、`Ctrl+Enter` / `Cmd+Enter` で送信
+- `textarea` / `contenteditable` の両方に対応
+- Gemini で利用可能な上位モードを自動選択（`PRO > 思考 > 高速`）
+- Chatwork でタグ挿入ボタンを表示（`Info` / `Title` / `Code` / `Hr`）
+- Messenger の IME 入力で改行が失われにくいように補正
 
 ## 対応サイト
-- Chatwork（タグボタンのみ）: `chatwork.com`
-- ChatGPT: `chat.openai.com`, `chatgpt.com`
-- Gemini: `gemini.google.com`
-- Messenger: `messenger.com`
-- Perplexity: `perplexity.ai`
 
-## Install (Local)
-1. Open `chrome://extensions` and enable Developer Mode.
-2. Click "Load unpacked" and select `SILHack`.
-3. Reload tabs for target sites.
+| サイト | URL | 内容 |
+|---|---|---|
+| ChatGPT | `chat.openai.com`, `chatgpt.com` | 送信キー挙動の変更 |
+| Gemini | `gemini.google.com` | 送信キー挙動の変更 + モード自動選択 |
+| Perplexity | `perplexity.ai`, `www.perplexity.ai` | 送信キー挙動の変更 |
+| Messenger | `messenger.com`, `www.messenger.com` | 送信キー挙動の変更（IME考慮） |
+| Chatwork | `chatwork.com`, `www.chatwork.com` | タグ挿入ボタンのみ |
 
-## インストール（ローカル）
-1. `chrome://extensions` を開いて「デベロッパーモード」を有効化。
-2. 「パッケージ化されていない拡張機能を読み込む」で `SILHack` を選択。
-3. 対象サイトのタブをリロード。
+## インストール方法（ローカル）
 
-## File Layout
-- `SILHack/manifest.json`: MV3 manifest and match patterns.
-- `SILHack/js/content.js`: key handling and site selectors.
-- `SILHack/js/chatwork_tags.js`: Chatwork tag insertion UI.
-- `SILHack/icons/`: extension icons (`icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`, `silhack-icon.svg`).
+1. `chrome://extensions` を開く
+2. 「デベロッパーモード」を ON にする
+3. 「パッケージ化されていない拡張機能を読み込む」で `SILHack` フォルダを選択
+4. 対象サイトのタブを再読み込みする
+
+## 使い方
+
+1. 対応サイトの入力欄で `Enter` を押すと改行
+2. `Ctrl+Enter`（macOS は `Cmd+Enter`）で送信
+3. Gemini はページ表示後に、利用可能な最上位モードへ自動で切り替え
+
+## Gemini モード自動切り替え
+
+- 優先順位は `PRO > 思考 > 高速`
+- 入力欄まわりの UI を基準にモード切り替えボタンを判定
+- 送信ボタンやサイドメニューなど、無関係なボタンの誤クリックを避ける設計
+- Gemini 側の UI 変更により、将来的に判定ロジックの調整が必要になる可能性あり
+
+## Messenger の IME 対応
+
+- `compositionend` 直後の `Enter` を考慮するガードを実装
+- 日本語 IME の確定操作直後に改行できない問題を緩和
 
 ## ファイル構成
-- `SILHack/manifest.json`: MV3 マニフェストとマッチパターン。
-- `SILHack/js/content.js`: キー処理とサイト別セレクタ。
-- `SILHack/js/chatwork_tags.js`: Chatwork タグ挿入 UI。
-- `SILHack/icons/`: 拡張アイコン（`icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`, `silhack-icon.svg`）。
 
-## How It Works
-- A capture-phase `keydown` listener checks for Enter and IME state.
-- On Ctrl/Cmd+Enter, it attempts to send using configured selectors.
-- On plain Enter, it inserts a newline (textarea or contenteditable).
+- `manifest.json`  
+  拡張の定義（Manifest V3、対象 URL、読み込むスクリプト）
+- `js/content.js`  
+  送信キー制御、Gemini モード自動切り替え、Messenger IME 対策
+- `js/chatwork_tags.js`  
+  Chatwork のタグ挿入ボタン UI
+- `icons/`  
+  拡張アイコン
+- `対策方針.md`  
+  Messenger IME 問題の調査メモと方針
 
-## 動作概要
-- capture phase の `keydown` リスナーで Enter キーと IME 状態を判定。
-- Ctrl/Cmd+Enter では、設定済みセレクタで送信を試行。
-- 通常 Enter では改行を挿入（`textarea` / `contenteditable`）。
+## 開発メモ
 
-## Updating Selectors
-- Add/adjust CSS selectors in `SITE_CONFIGS` in `SILHack/js/content.js`.
-- Keep selectors specific enough to avoid non-chat inputs.
-- If send fails on a site, add or refine `sendButtonSelectors`.
+- サイトごとのセレクタは `js/content.js` の `SITE_CONFIGS` で管理
+- 送信が効かない場合は `sendButtonSelectors` を優先して見直す
+- リリース時は `manifest.json` の `version` を更新する
 
-## セレクタ更新
-- `SILHack/js/content.js` の `SITE_CONFIGS` に CSS セレクタを追加・調整。
-- チャット以外の入力欄を拾わないように十分具体的なセレクタにする。
-- 送信失敗があるサイトは `sendButtonSelectors` を追加または調整。
+## 動作しないときの確認ポイント
 
-## Notes
-- IME composition is ignored to avoid breaking Japanese input.
-- Some web apps change DOM frequently; selectors may need updates.
+1. `chrome://extensions` で SILHack を再読み込み
+2. 対象サイトのタブをハードリロード
+3. 対象 URL が `manifest.json` の `matches` に含まれているか確認
+4. サイト側 UI 変更があれば、セレクタを更新
 
-## 注意事項
-- 日本語入力を壊さないため、IME 変換中の Enter は無視。
-- Web アプリ側の DOM 変更が頻繁なため、セレクタ調整が必要になる場合あり。
+## ライセンス
 
-## Versioning
-- Update the version in `SILHack/manifest.json` for releases.
-
-## バージョン管理
-- リリース時は `SILHack/manifest.json` のバージョンを更新。
+未設定です。
