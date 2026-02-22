@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Mischievous black English Cocker Spaniel icon">
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="#FFF8E7"/>
+
+  <!-- Shadow -->
+  <ellipse cx="128" cy="232" rx="70" ry="12" fill="#E8DFD0"/>
+
+  <!-- Left floppy ear -->
+  <path d="M40 100 Q20 130 25 180 Q30 220 55 230 Q80 235 90 200 Q95 160 85 120 Q80 95 60 90 Z" fill="#1a1a1a"/>
+  <path d="M45 110 Q30 140 35 180 Q40 210 55 218" stroke="#333" stroke-width="2" fill="none" opacity="0.3"/>
+
+  <!-- Right floppy ear -->
+  <path d="M216 100 Q236 130 231 180 Q226 220 201 230 Q176 235 166 200 Q161 160 171 120 Q176 95 196 90 Z" fill="#1a1a1a"/>
+  <path d="M211 110 Q226 140 221 180 Q216 210 201 218" stroke="#333" stroke-width="2" fill="none" opacity="0.3"/>
+
+  <!-- Head -->
+  <ellipse cx="128" cy="130" rx="68" ry="62" fill="#1a1a1a"/>
+
+  <!-- Forehead highlight -->
+  <ellipse cx="128" cy="95" rx="25" ry="12" fill="#2d2d2d"/>
+
+  <!-- Face/muzzle area -->
+  <ellipse cx="128" cy="155" rx="40" ry="32" fill="#222"/>
+
+  <!-- Eyes white background -->
+  <ellipse cx="98" cy="115" rx="18" ry="20" fill="#fff"/>
+  <ellipse cx="158" cy="115" rx="18" ry="20" fill="#fff"/>
+
+  <!-- Eyes - mischievous look (looking to side) -->
+  <ellipse cx="103" cy="118" rx="11" ry="13" fill="#3d2314"/>
+  <ellipse cx="163" cy="118" rx="11" ry="13" fill="#3d2314"/>
+
+  <!-- Pupils -->
+  <circle cx="106" cy="116" r="6" fill="#111"/>
+  <circle cx="166" cy="116" r="6" fill="#111"/>
+
+  <!-- Eye shine -->
+  <circle cx="108" cy="113" r="3" fill="#fff"/>
+  <circle cx="168" cy="113" r="3" fill="#fff"/>
+
+  <!-- Mischievous eyebrows (raised) -->
+  <path d="M80 95 Q90 88 110 92" stroke="#1a1a1a" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M176 95 Q166 88 146 92" stroke="#1a1a1a" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- Nose -->
+  <ellipse cx="128" cy="152" rx="16" ry="12" fill="#111"/>
+  <ellipse cx="128" cy="149" rx="10" ry="6" fill="#333"/>
+
+  <!-- Mischievous smile -->
+  <path d="M100 172 Q128 195 156 172" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- Tongue sticking out (playful!) -->
+  <ellipse cx="128" cy="188" rx="14" ry="20" fill="#FF6B8A"/>
+  <path d="M128 178 L128 198" stroke="#E85577" stroke-width="2"/>
+
+  <!-- Cheeky tongue highlight -->
+  <ellipse cx="124" cy="184" rx="4" ry="6" fill="#FF8FA8"/>
+
+  <!-- Whisker dots -->
+  <circle cx="95" cy="158" r="2" fill="#333"/>
+  <circle cx="88" cy="165" r="2" fill="#333"/>
+  <circle cx="161" cy="158" r="2" fill="#333"/>
+  <circle cx="168" cy="165" r="2" fill="#333"/>
+
+  <!-- Paw reaching up (being naughty!) -->
+  <g transform="translate(175, 190)">
+    <ellipse cx="20" cy="30" rx="22" ry="18" fill="#1a1a1a"/>
+    <ellipse cx="8" cy="18" rx="8" ry="10" fill="#1a1a1a"/>
+    <ellipse cx="20" cy="12" rx="8" ry="10" fill="#1a1a1a"/>
+    <ellipse cx="32" cy="18" rx="8" ry="10" fill="#1a1a1a"/>
+    <!-- Paw pads -->
+    <ellipse cx="20" cy="34" rx="10" ry="8" fill="#4a4a4a"/>
+    <circle cx="10" cy="22" r="4" fill="#4a4a4a"/>
+    <circle cx="20" cy="18" r="4" fill="#4a4a4a"/>
+    <circle cx="30" cy="22" r="4" fill="#4a4a4a"/>
+  </g>
+
+  <!-- Sparkles (mischief!) -->
+  <g fill="#FFD93D">
+    <path d="M45 60 L48 70 L58 73 L48 76 L45 86 L42 76 L32 73 L42 70 Z"/>
+    <path d="M205 55 L207 62 L214 64 L207 66 L205 73 L203 66 L196 64 L203 62 Z" transform="scale(0.8) translate(30, 10)"/>
+  </g>
+</svg>
