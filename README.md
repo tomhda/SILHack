@@ -61,7 +61,7 @@
   Chatwork のタグ挿入ボタン UI
 - `icons/`  
   拡張アイコン
-- `対策方針.md`  
+- `docs/messenger-ime.md`  
   Messenger IME 問題の調査メモと方針
 
 ## 開発メモ
