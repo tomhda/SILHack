@@ -236,6 +236,11 @@
   }
 
   function applyBestGeminiMode() {
+    const composer = findGeminiComposer();
+    if (!composer) {
+      return 'retry';
+    }
+
     const options = findGeminiModeOptions();
     if (options && options.length > 0) {
       const best = findBestGeminiModeOption(options);
@@ -253,7 +258,7 @@
       return 'confirm';
     }
 
-    const trigger = findGeminiModeTrigger();
+    const trigger = findGeminiModeTrigger(composer);
     if (!trigger) {
       return 'retry';
     }
@@ -268,9 +273,11 @@
     return 'wait-menu';
   }
 
-  function findGeminiModeTrigger() {
+  function findGeminiModeTrigger(composer) {
+    if (!composer) {
+      return null;
+    }
     const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
-    const composer = document.querySelector(editableSelectorList);
     let bestCandidate = null;
 
     for (const candidate of candidates) {
@@ -289,19 +296,13 @@
       const hasPopupMenu = hasPopup === 'menu' || hasPopup === 'listbox';
       const hasTouchTarget = Boolean(candidate.querySelector('.mat-mdc-button-touch-target'));
       const isLikelyModeTrigger = isLikelyGeminiModeTrigger(candidate, label);
-      const candidateText = (candidate.innerText || '').trim();
-      if (score < 0 && !hasPopupMenu && !hasTouchTarget && !isLikelyModeTrigger) {
-        continue;
-      }
-      // Avoid selecting unrelated PRO badges.
-      if (!isLikelyModeTrigger && /^pro$/i.test(candidateText)) {
+      // Strictly limit auto-click targets to likely mode switchers only.
+      if (!isLikelyModeTrigger) {
         continue;
       }
 
       let rank = Math.max(0, score);
-      if (isLikelyModeTrigger) {
-        rank += 2400;
-      }
+      rank += 2400;
       if (hasPopupMenu) {
         rank += 600;
       }
@@ -310,9 +311,6 @@
       }
       if (composer) {
         const proximity = scoreElementProximity(candidate, composer);
-        if (score < 0 && hasTouchTarget && !isLikelyModeTrigger && proximity <= 0) {
-          continue;
-        }
         rank += proximity;
         const candidateForm = candidate.closest('form');
         const composerForm = composer.closest('form');
@@ -381,6 +379,14 @@
     }
 
     return bestSet ? bestSet.options : null;
+  }
+
+  function findGeminiComposer() {
+    const composer = document.querySelector(editableSelectorList);
+    if (!composer || !isVisible(composer)) {
+      return null;
+    }
+    return composer;
   }
 
   function isLikelyGeminiModeTrigger(element, labelText) {
