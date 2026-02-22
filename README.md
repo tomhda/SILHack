@@ -79,4 +79,4 @@
 
 ## ライセンス
 
-未設定です。
+MIT License（`LICENSE` を参照）
