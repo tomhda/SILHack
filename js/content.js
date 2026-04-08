@@ -58,6 +58,19 @@
         'div[aria-label*="Press Enter to send" i]'
       ],
       editableGuard: (el) => isMessengerComposer(el)
+    },
+    claude: {
+      editableSelectors: [
+        'div.ProseMirror[contenteditable="true"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"][data-placeholder]'
+      ],
+      sendButtonSelectors: [
+        'button[aria-label*="send" i]',
+        'button[aria-label*="送信" i]',
+        'button[data-testid="send-button"]'
+      ],
+      editableGuard: (el) => isClaudeComposer(el)
     }
   };
 
@@ -83,7 +96,7 @@
   const GEMINI_MODE_CONFIRM_DELAY_MS = 700;
 
   document.addEventListener('keydown', handleKeydown, true);
-  if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt') {
+  if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
     document.addEventListener('keyup', handleKeyup, true);
   }
   if (site === 'messenger') {
@@ -113,13 +126,13 @@
       return;
     }
 
-    if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt') {
+    if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
       // If an autocomplete/mention picker is open, let Messenger handle Enter to confirm selection.
       if (!event.ctrlKey && !event.metaKey && isMessengerAutocompleteOpen(editable)) {
         return;
       }
 
-      // Messenger/Perplexity/ChatGPT use JS handlers for Enter-to-send. We block those handlers but keep the browser's
+      // Messenger/Perplexity/ChatGPT/Claude use JS handlers for Enter-to-send. We block those handlers but keep the browser's
       // native Enter behavior (newline/paragraph) to avoid fighting editor state management.
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault();
@@ -580,6 +593,9 @@
     if (host === 'www.messenger.com' || host === 'messenger.com') {
       return 'messenger';
     }
+    if (host === 'claude.ai') {
+      return 'claude';
+    }
     return null;
   }
 
@@ -606,6 +622,39 @@
 
     // If we're in the main thread view and it looks like a composer (contenteditable textbox), accept.
     return true;
+  }
+
+  function isClaudeComposer(el) {
+    if (!el || !el.getAttribute) {
+      return false;
+    }
+
+    const labelRaw = (el.getAttribute('aria-label') || el.getAttribute('data-placeholder') || el.getAttribute('aria-placeholder') || '').trim();
+    const label = labelRaw.toLowerCase();
+
+    if (label.includes('search') || label.includes('検索')) {
+      return false;
+    }
+
+    if (el.classList.contains('ProseMirror')) {
+      return true;
+    }
+
+    if (label.includes('message') || label.includes('reply') || label.includes('prompt') || label.includes('write') || label.includes('send')) {
+      return true;
+    }
+
+    const fieldset = el.closest('fieldset');
+    if (fieldset) {
+      return true;
+    }
+
+    const form = el.closest('form');
+    if (form && form.querySelector('button[aria-label*="send" i], button[aria-label*="送信" i], button[data-testid="send-button"]')) {
+      return true;
+    }
+
+    return false;
   }
 
   function isChatGPTComposer(el) {

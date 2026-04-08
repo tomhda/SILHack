@@ -24,6 +24,7 @@
 | Gemini | `gemini.google.com` | 送信キー挙動の変更 + モード自動選択 |
 | Perplexity | `perplexity.ai`, `www.perplexity.ai` | 送信キー挙動の変更 |
 | Messenger | `messenger.com`, `www.messenger.com` | 送信キー挙動の変更（IME考慮） |
+| Claude | `claude.ai` | 送信キー挙動の変更 |
 | Chatwork | `chatwork.com`, `www.chatwork.com` | タグ挿入ボタンのみ |
 
 ## インストール方法（ローカル）
