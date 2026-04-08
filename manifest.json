@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SILHack",
   "version": "0.1.1",
-  "description": "Remap send keys for ChatGPT, Gemini, Perplexity, Messenger, plus Chatwork tag buttons.",
+  "description": "Remap send keys for ChatGPT, Gemini, Perplexity, Messenger, Claude, plus Chatwork tag buttons.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -24,7 +24,8 @@
         "https://www.perplexity.ai/*",
         "https://perplexity.ai/*",
         "https://www.messenger.com/*",
-        "https://messenger.com/*"
+        "https://messenger.com/*",
+        "https://claude.ai/*"
       ],
       "js": ["js/content.js"],
       "run_at": "document_idle"
