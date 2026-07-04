@@ -6,9 +6,16 @@
   const MARK_SEEN_MESSAGE = 'silhack:updateNoticeSeen';
   const RELEASE_NOTES = {
     '0.2.1': [
-      'ChatGPTのEnter改行がスペースになる問題を修正',
+      'Claude.aiに対応',
       '設定をポップアップとサイドパネルから開けるように変更',
-      '更新内容を一回だけ表示するカードを追加'
+      'サイトごとのON/OFFと送信キー切替を追加',
+      'Geminiの優先モードをPro/思考/高速から選択可能に',
+      'Geminiの自動モード選択が手動メニュー操作を邪魔しないよう改善',
+      'ChatworkでMarkdown貼り付けをChatworkタグに変換できるように変更',
+      'ChatGPTのEnter改行がスペースになる問題を修正',
+      'MessengerのIME確定直後EnterとCtrl/Cmd+Enter送信の誤判定を改善',
+      '送信ボタン検出を入力欄近くの可視ボタン優先に改善',
+      '設定画面を会社カラーに合わせて調整'
     ]
   };
   const FALLBACK_NOTES = [
