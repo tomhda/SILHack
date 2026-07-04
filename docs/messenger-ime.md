@@ -44,59 +44,36 @@ IME確定直後の Enter では、ブラウザが `beforeinput` の `insertParag
 
 ## 修正方針
 
-### `compositionend` を監視して直後の Enter をスキップする
+### `compositionend` を監視して直後の Enter を消費する
 
-content.js に以下を追加:
-
-```javascript
-let justComposed = false;
-document.addEventListener('compositionend', () => {
-  justComposed = true;
-  requestAnimationFrame(() => { justComposed = false; });
-}, true);
-```
-
-`handleKeydown` の IME チェック（94行目）を拡張:
-
-```diff
-- if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) {
-+ if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229 || justComposed) {
-+   justComposed = false;
-    return;
-  }
-```
+Messenger の入力欄で `compositionend` が起きたら、短時間だけ「次の Enter は IME 確定キー」とみなす。
+該当 Enter は `preventDefault()` + `stopImmediatePropagation()` で消費し、Messenger の送信ハンドラへ渡さない。
 
 ### 修正の狙い
 
-- IME確定の Enter → `justComposed = true` → SILHack がスキップ → Lexical本来の処理に任せる
-- `requestAnimationFrame` で1フレーム後にフラグをリセット → 次の「本当の改行Enter」には影響しない
-- 全サイト共通の修正なので Messenger 以外のサイトでも IME 周りの安定性が向上する
+- IME確定の Enter → SILHack が `preventDefault()` + `stopImmediatePropagation()` で消費 → Messenger の送信ハンドラへ渡さない
+- ガードは短時間のみ有効にし、最初の Enter で消費する → 次の「本当の改行Enter」には影響しにくい
+- Messenger 限定の修正にして、他サイトへの回帰を避ける
+
+### Messenger の通常 Enter は明示的に改行を挿入する
+
+IME直後は Messenger / Chrome 側の `beforeinput` が揺れるため、Messenger だけは通常の Enter で `insertLineBreak` を実行する。
+他サイトは各エディタの実装差に合わせて別途処理し、Messenger の IME 対策を横展開しない。
 
 ### 注意点
 
-- `requestAnimationFrame` のタイミングで十分かは要検証（環境によっては `setTimeout(_, 100)` 程度が必要かもしれない）
-- Messenger 以外のサイト（ChatGPT, Slack, Gemini, Perplexity）でも同様の問題が起きていないか確認が必要
+- ガード時間は長すぎると「確定直後に本当に改行したい Enter」まで飲むため、短めに保つ
+- `keyup` ブロック (`enterHandledOnKeydown` 系) との相互作用は実機確認が必要
 
-## Codexレビュー（2026-02-14）
+## Codex実装メモ（2026-05-16）
 
 ### 結論
 
-この対策方針は妥当。特に `compositionend` 直後 Enter の取りこぼしを拾う方向は有効。
+`requestAnimationFrame` 1フレームのガードでは環境差に弱いため、短時間タイマー方式へ変更。
+また、Messenger の通常 Enter は `beforeinput` に依存せず、拡張側で明示的に改行を挿入する。
 
 ### 妥当な点
 
-- 現在の IME ガードは `event.isComposing || event.keyCode === 229` のみで、取りこぼしが発生しうる。
-- Messenger 分岐の plain Enter で `stopImmediatePropagation()` しているため、実装差異で改行が消える余地がある。
-- `justComposed` で確定 Enter のみ自前処理を回避する設計は、回帰を小さく抑えやすい。
-
-### 注意点（追加）
-
-- `requestAnimationFrame` 1フレームだけでは環境差で短い可能性がある。
-- まず Messenger 限定で導入し、回帰範囲を絞るのが安全。
-- `keyup` ブロック (`enterHandledOnKeydown` 系) との相互作用は実機確認が必要。
-
-### 実装順（推奨）
-
-1. Messenger 限定で `justComposed` を導入する。
-2. まず `requestAnimationFrame` 版で検証する。
-3. 改善が不十分な環境のみ `setTimeout`（80-150ms目安）へ拡張する。
+- `event.isComposing || event.keyCode === 229` だけでは、`compositionend` が先に来る環境を拾いきれない。
+- Messenger 分岐の plain Enter で `stopImmediatePropagation()` しているため、Messenger / Chrome 側の `beforeinput` 実装差で改行が消える余地がある。
+- Messenger 限定で明示挿入へ寄せることで、ChatGPT / Perplexity の既存挙動には触れない。

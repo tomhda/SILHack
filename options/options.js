@@ -20,6 +20,7 @@
   const messengerCompositionGuardMs = document.getElementById('messengerCompositionGuardMs');
   const chatworkMarkdownAutoPaste = document.getElementById('chatworkMarkdownAutoPaste');
   const resetButton = document.getElementById('reset');
+  const openOptionsButton = document.getElementById('openOptions');
 
   initialize();
 
@@ -87,6 +88,15 @@
       render();
       await saveNow();
     });
+
+    if (openOptionsButton) {
+      openOptionsButton.addEventListener('click', () => {
+        if (globalThis.chrome?.runtime?.openOptionsPage) {
+          chrome.runtime.openOptionsPage();
+          window.close();
+        }
+      });
+    }
   }
 
   function render() {

@@ -48,8 +48,9 @@
 
 ## Messenger の IME 対応
 
-- `compositionend` 直後の `Enter` を考慮するガードを実装
-- 日本語 IME の確定操作直後に改行できない問題を緩和
+- `compositionend` 直後の `Enter` は IME 確定キーとして扱い、Messenger の送信ハンドラへ渡さない
+- 通常の `Enter` は Messenger の `beforeinput` フォールバックに依存せず、拡張側で改行を挿入
+- Google 日本語入力の確定操作直後に改行できない問題を緩和
 
 ## ファイル構成
 

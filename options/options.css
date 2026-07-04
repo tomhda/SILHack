@@ -1,26 +1,14 @@
 :root {
-  color-scheme: light dark;
-  --bg: #f5f7fb;
+  color-scheme: light;
+  --bg: #f4f8f1;
   --surface: #ffffff;
-  --text: #172033;
-  --muted: #667085;
-  --border: #d8dee9;
-  --accent: #1769e0;
-  --accent-soft: #e8f1ff;
-  --shadow: 0 12px 34px rgba(20, 31, 54, 0.08);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111722;
-    --surface: #182131;
-    --text: #eef3fb;
-    --muted: #a6b0c2;
-    --border: #2b374b;
-    --accent: #75a7ff;
-    --accent-soft: #203553;
-    --shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
-  }
+  --text: #1c1719;
+  --muted: #625d5f;
+  --border: #dfe8da;
+  --accent: #31972b;
+  --accent-strong: #22751e;
+  --accent-soft: #e9f6e5;
+  --shadow: 0 12px 34px rgba(31, 23, 26, 0.08);
 }
 
 * {
@@ -34,9 +22,20 @@ body {
   font: 14px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+body.popup-view {
+  width: 390px;
+  min-height: 540px;
+}
+
 .shell {
   width: min(880px, calc(100% - 32px));
   margin: 32px auto;
+}
+
+.popup-view .shell {
+  width: 100%;
+  margin: 0;
+  padding: 14px;
 }
 
 .page-header {
@@ -45,6 +44,11 @@ body {
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 20px;
+}
+
+.popup-view .page-header {
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 h1,
@@ -56,6 +60,11 @@ p {
 h1 {
   font-size: 28px;
   line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.popup-view h1 {
+  font-size: 22px;
 }
 
 h2 {
@@ -79,10 +88,20 @@ small,
   margin-bottom: 14px;
 }
 
+.popup-view .section {
+  box-shadow: none;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
 .site-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.popup-view .site-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .toggle-row,
@@ -135,13 +154,14 @@ input[type="number"] {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 11px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
+  background: #fbfdf9;
 }
 
 .segmented label:has(input:checked),
 .site-grid label:has(input:checked) {
   border-color: var(--accent);
   background: var(--accent-soft);
+  color: #1f451e;
 }
 
 button {
@@ -160,6 +180,23 @@ button {
 
 button:hover {
   border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.popup-view .page-actions {
+  max-width: 148px;
+}
+
+.popup-view button {
+  width: 100%;
 }
 
 .status {
