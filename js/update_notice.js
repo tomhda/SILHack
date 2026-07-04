@@ -4,18 +4,47 @@
   const STORAGE_KEY = 'silhackUpdateNotice';
   const SEEN_VERSION_KEY = 'silhackUpdateNoticeSeenVersion';
   const MARK_SEEN_MESSAGE = 'silhack:updateNoticeSeen';
+  const INSTALL_NOTES = {
+    '0.2.1': [
+      'ChatGPT / Claude / Gemini / Perplexity / Messengerで送信キーを統一',
+      'Enterで改行、Ctrl/Cmd+Enterで送信',
+      'サイトごとのON/OFFと送信キー切替に対応',
+      'Geminiの優先モードをPro/思考/高速から選択可能',
+      'ChatworkでMarkdownをChatworkタグに変換',
+      'ポップアップ/サイドパネルから設定を変更'
+    ]
+  };
   const RELEASE_NOTES = {};
 
   function getCurrentVersion() {
     return globalThis.chrome?.runtime?.getManifest?.().version || '';
   }
 
+  function getInstallNotes(version) {
+    return INSTALL_NOTES[version] || [];
+  }
+
   function getReleaseNotes(version) {
     return RELEASE_NOTES[version] || [];
   }
 
-  function buildNotice(version, previousVersion) {
+  function getNoticeNotes(kind, version) {
+    return kind === 'install' ? getInstallNotes(version) : getReleaseNotes(version);
+  }
+
+  function buildInstallNotice(version) {
     return {
+      kind: 'install',
+      version,
+      previousVersion: '',
+      notes: getInstallNotes(version),
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  function buildUpdateNotice(version, previousVersion) {
+    return {
+      kind: 'update',
       version,
       previousVersion: previousVersion || '',
       notes: getReleaseNotes(version),
@@ -31,11 +60,13 @@
     if (!value || typeof value !== 'object' || !value.version) {
       return null;
     }
-    const notes = getReleaseNotes(value.version);
+    const kind = value.kind === 'install' ? 'install' : 'update';
+    const notes = getNoticeNotes(kind, value.version);
     if (!notes.length) {
       return null;
     }
     return {
+      kind,
       version: String(value.version),
       previousVersion: value.previousVersion ? String(value.previousVersion) : '',
       notes,
@@ -100,8 +131,10 @@
     STORAGE_KEY,
     SEEN_VERSION_KEY,
     MARK_SEEN_MESSAGE,
-    buildNotice,
+    buildInstallNotice,
+    buildUpdateNotice,
     getCurrentVersion,
+    getInstallNotes,
     getReleaseNotes,
     isVersionUpdate,
     loadPendingNotice,

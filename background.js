@@ -22,6 +22,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleInstalled(details) {
+  if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
+    const version = updateNotice.getCurrentVersion();
+    const notice = updateNotice.buildInstallNotice(version);
+    if (!notice.notes.length) {
+      await clearUpdateBadge();
+      return;
+    }
+
+    await updateNotice.saveNotice(notice);
+    await refreshUpdateBadge();
+    return;
+  }
+
   if (details.reason !== chrome.runtime.OnInstalledReason.UPDATE) {
     return;
   }
@@ -31,7 +44,7 @@ async function handleInstalled(details) {
     return;
   }
 
-  const notice = updateNotice.buildNotice(version, details.previousVersion);
+  const notice = updateNotice.buildUpdateNotice(version, details.previousVersion);
   if (!notice.notes.length) {
     await updateNotice.markSeen(version);
     await clearUpdateBadge();
