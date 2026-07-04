@@ -15,9 +15,26 @@
       sendButtonSelectors: [
         'button[data-testid="send-button"]',
         'button[aria-label="Send prompt"]',
-        'button[aria-label="Send message"]'
+        'button[aria-label="Send message"]',
+        'button[aria-label*="送信" i]'
       ],
       editableGuard: (el) => isChatGPTComposer(el)
+    },
+    claude: {
+      editableSelectors: [
+        'div[contenteditable="true"][data-testid*="chat-input" i]',
+        'div[contenteditable="true"][aria-label*="message" i]',
+        'div[contenteditable="true"][aria-label*="prompt" i]',
+        'div[contenteditable="true"][role="textbox"]',
+        'textarea[aria-label*="message" i]',
+        'textarea[placeholder*="message" i]'
+      ],
+      sendButtonSelectors: [
+        'button[aria-label*="send" i]',
+        'button[data-testid*="send" i]',
+        'button[type="submit"]'
+      ],
+      editableGuard: (el) => isClaudeComposer(el)
     },
     gemini: {
       editableSelectors: [
@@ -66,11 +83,25 @@
     return;
   }
 
-  const config = SITE_CONFIGS[site];
-  const editableSelectorList = config.editableSelectors.join(',');
+  const settingsHelper = globalThis.SILHackSettings;
+  let runtimeSettings = settingsHelper?.normalizeSettings
+    ? settingsHelper.normalizeSettings()
+    : {
+        sites: { chatgpt: true, claude: true, gemini: true, perplexity: true, messenger: true, chatwork: true },
+        sendMode: 'newline',
+        geminiPreferredMode: 'pro',
+        messengerCompositionGuardMs: 160,
+        chatworkMarkdownAutoPaste: false
+      };
+  let listenersRegistered = false;
+  let config = SITE_CONFIGS[site];
+  let editableSelectorList = config.editableSelectors.join(',');
   let ignoreSynthetic = false;
   let enterHandledOnKeydown = false;
-  let messengerJustComposed = false;
+  let messengerLastComposingEnterAt = 0;
+  let messengerCompositionEnterGuardUntil = 0;
+  let messengerCompositionEnterGuardTimerId = 0;
+  let geminiModeObserver = null;
   let geminiModeTimerId = 0;
   let geminiModeRouteKey = '';
   let geminiModeAttempts = 0;
@@ -81,21 +112,108 @@
   const GEMINI_MODE_RETRY_DELAY_MS = 900;
   const GEMINI_MODE_MENU_DELAY_MS = 220;
   const GEMINI_MODE_CONFIRM_DELAY_MS = 700;
+  const MESSENGER_COMPOSING_ENTER_PROCESSED_WINDOW_MS = 50;
 
-  document.addEventListener('keydown', handleKeydown, true);
-  if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt') {
-    document.addEventListener('keyup', handleKeyup, true);
+  boot();
+
+  function boot() {
+    const settingsPromise = settingsHelper?.loadSettings
+      ? settingsHelper.loadSettings()
+      : Promise.resolve(runtimeSettings);
+    settingsPromise
+      .then((settings) => {
+        runtimeSettings = normalizeRuntimeSettings(settings);
+        registerEventListeners();
+      })
+      .catch(() => {
+        runtimeSettings = normalizeRuntimeSettings(runtimeSettings);
+        registerEventListeners();
+      });
   }
-  if (site === 'messenger') {
-    document.addEventListener('compositionend', handleCompositionEnd, true);
+
+  function registerEventListeners() {
+    if (listenersRegistered) {
+      return;
+    }
+    listenersRegistered = true;
+    document.addEventListener('keydown', handleKeydown, true);
+    if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
+      document.addEventListener('keyup', handleKeyup, true);
+    }
+    window.addEventListener('blur', () => {
+      enterHandledOnKeydown = false;
+    }, true);
+    if (site === 'messenger') {
+      document.addEventListener('compositionend', handleCompositionEnd, true);
+    }
+    if (site === 'gemini' && isCurrentSiteEnabled()) {
+      startGeminiModeAutoSelect();
+    }
+    registerSettingsChangeListener();
   }
-  if (site === 'gemini') {
-    startGeminiModeAutoSelect();
+
+  function registerSettingsChangeListener() {
+    if (!globalThis.chrome?.storage?.onChanged || !settingsHelper?.STORAGE_KEY) {
+      return;
+    }
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync' || !changes[settingsHelper.STORAGE_KEY]) {
+        return;
+      }
+      runtimeSettings = normalizeRuntimeSettings(changes[settingsHelper.STORAGE_KEY].newValue);
+      enterHandledOnKeydown = false;
+      if (site === 'gemini') {
+        if (isCurrentSiteEnabled()) {
+          geminiModeSettled = false;
+          geminiModeAttempts = 0;
+          resumeGeminiModeSelection(250);
+        } else {
+          settleGeminiModeSelection();
+        }
+      }
+    });
+  }
+
+  function normalizeRuntimeSettings(settings) {
+    if (settingsHelper?.normalizeSettings) {
+      return settingsHelper.normalizeSettings(settings);
+    }
+    return settings || runtimeSettings;
+  }
+
+  function isCurrentSiteEnabled() {
+    return runtimeSettings?.sites?.[site] !== false;
+  }
+
+  function isSendModeEnterSends() {
+    return runtimeSettings?.sendMode === 'send';
+  }
+
+  function isPlainEnter(event) {
+    return !event.ctrlKey && !event.metaKey;
+  }
+
+  function shouldSendOnEnter(event) {
+    return isSendModeEnterSends() ? isPlainEnter(event) : !isPlainEnter(event);
+  }
+
+  function getMessengerCompositionGuardMs() {
+    const guardMs = Number(runtimeSettings?.messengerCompositionGuardMs);
+    if (Number.isFinite(guardMs)) {
+      return Math.max(0, Math.min(1000, Math.round(guardMs)));
+    }
+    return 160;
   }
 
   function handleKeydown(event) {
     if (ignoreSynthetic) {
       return;
+    }
+    if (!isCurrentSiteEnabled()) {
+      return;
+    }
+    if (site === 'messenger' && (event.key === 'Enter' || event.code === 'Enter') && (event.isComposing || event.keyCode === 229)) {
+      noteMessengerComposingEnter(event);
     }
     if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) {
       return;
@@ -108,20 +226,20 @@
     if (config.editableGuard && !config.editableGuard(editable)) {
       return;
     }
-    if (site === 'messenger' && messengerJustComposed) {
-      messengerJustComposed = false;
+    if (site === 'messenger' && isPlainEnter(event) && shouldConsumeMessengerCompositionEnter()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      enterHandledOnKeydown = true;
       return;
     }
 
-    if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt') {
+    if (site === 'messenger') {
       // If an autocomplete/mention picker is open, let Messenger handle Enter to confirm selection.
-      if (!event.ctrlKey && !event.metaKey && isMessengerAutocompleteOpen(editable)) {
+      if (isPlainEnter(event) && isAutocompletePickerOpen(editable)) {
         return;
       }
 
-      // Messenger/Perplexity/ChatGPT use JS handlers for Enter-to-send. We block those handlers but keep the browser's
-      // native Enter behavior (newline/paragraph) to avoid fighting editor state management.
-      if (event.ctrlKey || event.metaKey) {
+      if (shouldSendOnEnter(event)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         enterHandledOnKeydown = true;
@@ -129,21 +247,60 @@
         return;
       }
 
-      // Plain Enter => newline (native), so do NOT preventDefault.
+      // Messenger's native beforeinput fallback is unreliable immediately after IME composition.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      enterHandledOnKeydown = true;
+      insertNewline(editable);
+      return;
+    }
+
+    if (site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
+      if (isPlainEnter(event) && isAutocompletePickerOpen(editable)) {
+        return;
+      }
+
+      // These editors use JS handlers for Enter-to-send. Block those handlers but keep the browser's
+      // native Enter behavior (newline/paragraph) to avoid fighting editor state management.
+      if (shouldSendOnEnter(event)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        enterHandledOnKeydown = true;
+        triggerSend(editable);
+        return;
+      }
+
+      if (!isPlainEnter(event)) {
+        event.preventDefault();
+        insertNewline(editable);
+      }
       event.stopImmediatePropagation();
       enterHandledOnKeydown = true;
       return;
     }
 
-    if (event.ctrlKey || event.metaKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      triggerSend(editable);
+    if (site === 'gemini') {
+      if (isPlainEnter(event) && isAutocompletePickerOpen(editable)) {
+        return;
+      }
+      if (shouldSendOnEnter(event)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        triggerSend(editable);
+        return;
+      }
+      if (!isPlainEnter(event)) {
+        event.preventDefault();
+        insertNewline(editable);
+      }
+      event.stopImmediatePropagation();
       return;
     }
 
-    if (site === 'gemini') {
-      event.stopImmediatePropagation();
+    if (shouldSendOnEnter(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      triggerSend(editable);
       return;
     }
 
@@ -153,6 +310,9 @@
   }
 
   function handleKeyup(event) {
+    if (ignoreSynthetic) {
+      return;
+    }
     if (!enterHandledOnKeydown) {
       return;
     }
@@ -165,27 +325,111 @@
     enterHandledOnKeydown = false;
   }
 
-  function handleCompositionEnd() {
-    messengerJustComposed = true;
-    requestAnimationFrame(() => {
-      messengerJustComposed = false;
-    });
+  function handleCompositionEnd(event) {
+    if (!isCurrentSiteEnabled()) {
+      return;
+    }
+    const editable = findEditableFromEvent(event, editableSelectorList);
+    if (!editable || (config.editableGuard && !config.editableGuard(editable))) {
+      return;
+    }
+    if (wasMessengerCompositionEnterAlreadyHandled()) {
+      clearMessengerCompositionEnterGuard();
+      return;
+    }
+
+    const guardMs = getMessengerCompositionGuardMs();
+    if (guardMs <= 0) {
+      clearMessengerCompositionEnterGuard();
+      return;
+    }
+    messengerCompositionEnterGuardUntil = performance.now() + guardMs;
+    if (messengerCompositionEnterGuardTimerId) {
+      window.clearTimeout(messengerCompositionEnterGuardTimerId);
+    }
+    messengerCompositionEnterGuardTimerId = window.setTimeout(() => {
+      messengerCompositionEnterGuardTimerId = 0;
+      if (performance.now() >= messengerCompositionEnterGuardUntil) {
+        messengerCompositionEnterGuardUntil = 0;
+      }
+    }, guardMs + 20);
+  }
+
+  function noteMessengerComposingEnter(event) {
+    const editable = findEditableFromEvent(event, editableSelectorList);
+    if (!editable || (config.editableGuard && !config.editableGuard(editable))) {
+      return;
+    }
+    messengerLastComposingEnterAt = performance.now();
+  }
+
+  function wasMessengerCompositionEnterAlreadyHandled() {
+    const lastComposingEnterAt = messengerLastComposingEnterAt;
+    messengerLastComposingEnterAt = 0;
+    return Boolean(
+      lastComposingEnterAt &&
+      performance.now() - lastComposingEnterAt <= MESSENGER_COMPOSING_ENTER_PROCESSED_WINDOW_MS
+    );
+  }
+
+  function shouldConsumeMessengerCompositionEnter() {
+    const guardUntil = messengerCompositionEnterGuardUntil;
+    if (!guardUntil) {
+      return false;
+    }
+
+    clearMessengerCompositionEnterGuard();
+    return performance.now() <= guardUntil;
+  }
+
+  function clearMessengerCompositionEnterGuard() {
+    messengerCompositionEnterGuardUntil = 0;
+    if (messengerCompositionEnterGuardTimerId) {
+      window.clearTimeout(messengerCompositionEnterGuardTimerId);
+      messengerCompositionEnterGuardTimerId = 0;
+    }
   }
 
   function startGeminiModeAutoSelect() {
-    const observer = new MutationObserver(() => {
-      scheduleGeminiModeSelection(450);
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('focus', () => scheduleGeminiModeSelection(400), true);
-    window.addEventListener('pageshow', () => scheduleGeminiModeSelection(500), true);
-    window.addEventListener('popstate', () => scheduleGeminiModeSelection(500), true);
-    document.addEventListener('focusin', () => scheduleGeminiModeSelection(300), true);
+    armGeminiModeObserver();
+    window.addEventListener('focus', () => resumeGeminiModeSelection(400), true);
+    window.addEventListener('pageshow', () => resumeGeminiModeSelection(500), true);
+    window.addEventListener('popstate', () => resumeGeminiModeSelection(500), true);
+    document.addEventListener('focusin', () => resumeGeminiModeSelection(300), true);
     scheduleGeminiModeSelection(800);
   }
 
+  function armGeminiModeObserver() {
+    if (geminiModeObserver || !document.documentElement) {
+      return;
+    }
+    geminiModeObserver = new MutationObserver(() => {
+      scheduleGeminiModeSelection(450);
+    });
+    geminiModeObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function disconnectGeminiModeObserver() {
+    if (!geminiModeObserver) {
+      return;
+    }
+    geminiModeObserver.disconnect();
+    geminiModeObserver = null;
+  }
+
+  function resumeGeminiModeSelection(delayMs) {
+    armGeminiModeObserver();
+    scheduleGeminiModeSelection(delayMs);
+  }
+
+  function settleGeminiModeSelection() {
+    geminiModeSettled = true;
+    geminiModeMenuPending = false;
+    disconnectGeminiModeObserver();
+  }
+
   function scheduleGeminiModeSelection(delayMs = 250) {
-    if (site !== 'gemini') {
+    if (site !== 'gemini' || !isCurrentSiteEnabled()) {
       return;
     }
     if (geminiModeTimerId) {
@@ -196,15 +440,25 @@
 
   function runGeminiModeSelection() {
     geminiModeTimerId = 0;
+    if (!isCurrentSiteEnabled()) {
+      settleGeminiModeSelection();
+      return;
+    }
     const routeKey = `${window.location.pathname}${window.location.search}`;
     if (routeKey !== geminiModeRouteKey) {
       geminiModeRouteKey = routeKey;
       geminiModeAttempts = 0;
       geminiModeSettled = false;
       geminiModeMenuPending = false;
+      armGeminiModeObserver();
     }
 
-    if (geminiModeSettled || geminiModeAttempts >= GEMINI_MODE_MAX_ATTEMPTS) {
+    if (geminiModeSettled) {
+      disconnectGeminiModeObserver();
+      return;
+    }
+    if (geminiModeAttempts >= GEMINI_MODE_MAX_ATTEMPTS) {
+      settleGeminiModeSelection();
       return;
     }
 
@@ -212,8 +466,7 @@
     const status = applyBestGeminiMode();
 
     if (status === 'done') {
-      geminiModeSettled = true;
-      geminiModeMenuPending = false;
+      settleGeminiModeSelection();
       return;
     }
 
@@ -243,6 +496,9 @@
 
     const options = findGeminiModeOptions();
     if (options && options.length > 0) {
+      if (!geminiModeMenuPending) {
+        return 'done';
+      }
       const best = findBestGeminiModeOption(options);
       if (!best) {
         return 'retry';
@@ -363,7 +619,7 @@
         scored.push({ element: optionElement, label, score });
       }
 
-      if (scored.length < 2) {
+      if (scored.length < 1) {
         continue;
       }
 
@@ -522,16 +778,21 @@
       text.includes('高速');
     const hasModelWord = /\bmodel\b/i.test(text) || text.includes('モデル');
 
-    let tier = -1;
+    let mode = '';
     if (hasPro) {
-      tier = 3;
+      mode = 'pro';
     } else if (hasThinking) {
-      tier = 2;
+      mode = 'thinking';
     } else if (hasFast) {
-      tier = 1;
+      mode = 'fast';
     } else if (hasModelWord) {
-      tier = 0;
+      mode = 'model';
     } else {
+      return -1;
+    }
+    const modeRanks = getGeminiModeRanks();
+    const tier = modeRanks[mode] ?? -1;
+    if (tier < 0) {
       return -1;
     }
 
@@ -547,6 +808,17 @@
     }
 
     return tier * 1000 + versionBonus;
+  }
+
+  function getGeminiModeRanks() {
+    const preferred = runtimeSettings?.geminiPreferredMode || 'pro';
+    if (preferred === 'fast') {
+      return { fast: 3, pro: 2, thinking: 1, model: 0 };
+    }
+    if (preferred === 'thinking') {
+      return { thinking: 3, pro: 2, fast: 1, model: 0 };
+    }
+    return { pro: 3, thinking: 2, fast: 1, model: 0 };
   }
 
   function scoreElementProximity(a, b) {
@@ -570,6 +842,9 @@
     const host = window.location.hostname;
     if (host === 'chat.openai.com' || host === 'chatgpt.com') {
       return 'chatgpt';
+    }
+    if (host === 'claude.ai') {
+      return 'claude';
     }
     if (host === 'gemini.google.com') {
       return 'gemini';
@@ -619,7 +894,7 @@
       if (testid.includes('conversation') || testid.includes('composer') || testid.includes('prompt')) {
         return true;
       }
-      if (form.querySelector('button[data-testid="send-button"], button[aria-label*="send" i], button[aria-label*="送信" i]')) {
+      if (findUsableSendButtonInScope(form, SITE_CONFIGS.chatgpt.sendButtonSelectors)) {
         return true;
       }
     }
@@ -631,41 +906,92 @@
         return false;
       }
       if (label.includes('message') || label.includes('prompt') || label.includes('send') || label.includes('chatgpt')) {
-        return true;
+        return isLikelyChatGPTPromptEditable(el) || hasChatGPTComposerSendButton(el);
       }
     }
 
-    const main = el.closest('main');
-    if (main) {
+    return isLikelyChatGPTPromptEditable(el) || hasChatGPTComposerSendButton(el);
+  }
+
+  function isClaudeComposer(el) {
+    if (!el || !el.getAttribute) {
+      return false;
+    }
+
+    const labelRaw = (
+      el.getAttribute('aria-label') ||
+      el.getAttribute('data-placeholder') ||
+      el.getAttribute('placeholder') ||
+      ''
+    ).trim();
+    const label = labelRaw.toLowerCase();
+    if (label.includes('search') || label.includes('検索')) {
+      return false;
+    }
+
+    const form = el.closest('form');
+    if (form && findUsableSendButtonInScope(form, SITE_CONFIGS.claude.sendButtonSelectors)) {
       return true;
     }
 
-    return false;
+    if (label.includes('message') || label.includes('prompt') || label.includes('claude')) {
+      return hasClaudeComposerSendButton(el) || Boolean(el.closest('form'));
+    }
+
+    return hasClaudeComposerSendButton(el);
   }
 
-  function isMessengerAutocompleteOpen(editable) {
+  function isLikelyChatGPTPromptEditable(el) {
+    if (!el || !el.getAttribute) {
+      return false;
+    }
+    const id = (el.getAttribute('id') || '').toLowerCase();
+    const testid = (el.getAttribute('data-testid') || '').toLowerCase();
+    return id === 'prompt-textarea' || testid === 'prompt-textarea';
+  }
+
+  function hasChatGPTComposerSendButton(el) {
+    const scopes = getEditableLocalScopes(el);
+    return scopes.some((scope) => findUsableSendButtonInScope(scope, SITE_CONFIGS.chatgpt.sendButtonSelectors));
+  }
+
+  function hasClaudeComposerSendButton(el) {
+    const scopes = getEditableLocalScopes(el);
+    return scopes.some((scope) => findUsableSendButtonInScope(scope, SITE_CONFIGS.claude.sendButtonSelectors));
+  }
+
+  function isAutocompletePickerOpen(editable) {
     try {
       if (editable && editable.getAttribute && editable.getAttribute('aria-activedescendant')) {
         return true;
       }
 
-      const main = editable?.closest?.('[role="main"]') || document;
-      const listboxes = Array.from(
-        main.querySelectorAll('[role="listbox"], [role="menu"], [role="dialog"] [role="listbox"]')
-      );
-      for (const box of listboxes) {
-        if (!isVisible(box)) {
-          continue;
-        }
-        // Many pickers use options/menuitems.
-        if (box.querySelector('[role="option"], [role="menuitem"], [role="menuitemradio"]')) {
-          return true;
+      for (const scope of getAutocompletePickerScopes(editable)) {
+        const listboxes = Array.from(
+          scope.querySelectorAll('[role="listbox"], [role="menu"], [role="dialog"] [role="listbox"]')
+        );
+        for (const box of listboxes) {
+          if (!isVisible(box)) {
+            continue;
+          }
+          // Many pickers use options/menuitems.
+          if (box.querySelector('[role="option"], [role="menuitem"], [role="menuitemradio"]')) {
+            return true;
+          }
         }
       }
     } catch (err) {
       return false;
     }
     return false;
+  }
+
+  function getAutocompletePickerScopes(editable) {
+    const scopes = getEditableLocalScopes(editable);
+    if (site === 'messenger') {
+      addUniqueElement(scopes, editable?.closest?.('[role="main"]'));
+    }
+    return scopes;
   }
 
   function isVisible(el) {
@@ -715,8 +1041,9 @@
       const inserted = document.execCommand('insertLineBreak') ||
         document.execCommand('insertText', false, '\n');
       if (!inserted) {
-        insertTextContentEditable(editable, '\n');
+        insertLineBreakContentEditable(editable);
       }
+      dispatchInput(editable);
     }
   }
 
@@ -727,23 +1054,40 @@
     const nextValue = value.slice(0, start) + text + value.slice(end);
     const nextPos = start + text.length;
 
-    editable.value = nextValue;
+    setNativeTextControlValue(editable, nextValue);
     editable.selectionStart = nextPos;
     editable.selectionEnd = nextPos;
     dispatchInput(editable);
   }
 
-  function insertTextContentEditable(editable, text) {
+  function setNativeTextControlValue(editable, value) {
+    const tag = editable.tagName;
+    const prototype = tag === 'TEXTAREA'
+      ? HTMLTextAreaElement.prototype
+      : tag === 'INPUT'
+        ? HTMLInputElement.prototype
+        : null;
+    const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'value');
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(editable, value);
+      return;
+    }
+    editable.value = value;
+  }
+
+  function insertLineBreakContentEditable(editable) {
     const selection = document.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       range.deleteContents();
-      range.insertNode(document.createTextNode(text));
-      range.collapse(false);
+      const br = document.createElement('br');
+      range.insertNode(br);
+      range.setStartAfter(br);
+      range.setEndAfter(br);
       selection.removeAllRanges();
       selection.addRange(range);
     } else {
-      editable.appendChild(document.createTextNode(text));
+      editable.appendChild(document.createElement('br'));
     }
   }
 
@@ -753,7 +1097,7 @@
 
 
   function triggerSend(editable) {
-    const button = findSendButton(config.sendButtonSelectors);
+    const button = findSendButton(config.sendButtonSelectors, editable);
     if (button) {
       button.click();
       return;
@@ -761,29 +1105,114 @@
 
     const form = editable.closest('form');
     if (form) {
-      const submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
-      if (submitButton && !submitButton.disabled) {
+      const submitButton = findUsableSendButtonInScope(form, ['button[type="submit"], input[type="submit"]']);
+      if (submitButton) {
         submitButton.click();
         return;
       }
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      return;
     }
 
     dispatchEnter(editable);
   }
 
-  function findSendButton(selectors) {
+  function findSendButton(selectors, editable) {
+    const scopedButton = findSendButtonInScopes(selectors, getSendButtonScopes(editable));
+    if (scopedButton) {
+      return scopedButton;
+    }
+
+    const candidates = [];
     for (const selector of selectors) {
-      const button = document.querySelector(selector);
-      if (!button) {
-        continue;
+      for (const button of document.querySelectorAll(selector)) {
+        if (isUsableButton(button)) {
+          candidates.push(button);
+        }
       }
-      if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
-        continue;
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+    if (!editable) {
+      return candidates[0];
+    }
+
+    let nearest = null;
+    for (const candidate of candidates) {
+      const rank = scoreElementProximity(candidate, editable);
+      if (!nearest || rank > nearest.rank) {
+        nearest = { element: candidate, rank };
       }
-      return button;
+    }
+    return nearest ? nearest.element : candidates[0];
+  }
+
+  function findSendButtonInScopes(selectors, scopes) {
+    for (const scope of scopes) {
+      const button = findUsableSendButtonInScope(scope, selectors);
+      if (button) {
+        return button;
+      }
     }
     return null;
+  }
+
+  function findUsableSendButtonInScope(scope, selectors) {
+    if (!scope || !scope.querySelectorAll) {
+      return null;
+    }
+    for (const selector of selectors) {
+      for (const button of scope.querySelectorAll(selector)) {
+        if (isUsableButton(button)) {
+          return button;
+        }
+      }
+    }
+    return null;
+  }
+
+  function getSendButtonScopes(editable) {
+    const scopes = getEditableLocalScopes(editable);
+    if (site === 'messenger') {
+      addUniqueElement(scopes, editable?.closest?.('[role="main"]'));
+    }
+    return scopes;
+  }
+
+  function getEditableLocalScopes(editable) {
+    const scopes = [];
+    if (!editable || !editable.closest) {
+      return scopes;
+    }
+    addUniqueElement(scopes, editable.closest('form'));
+    addUniqueElement(scopes, editable.closest('[role="form"]'));
+    addUniqueElement(scopes, editable.closest('[data-testid*="composer" i]'));
+    addUniqueElement(scopes, editable.closest('[data-testid*="prompt" i]'));
+    addUniqueElement(scopes, editable.closest('[data-testid*="chat-input" i]'));
+    addUniqueElement(scopes, editable.closest('[class*="composer" i]'));
+    addUniqueElement(scopes, editable.parentElement);
+    return scopes;
+  }
+
+  function addUniqueElement(elements, element) {
+    if (element && !elements.includes(element)) {
+      elements.push(element);
+    }
+  }
+
+  function isUsableButton(button) {
+    if (!button || !isVisible(button)) {
+      return false;
+    }
+    if ('disabled' in button && button.disabled) {
+      return false;
+    }
+    if (button.getAttribute('aria-disabled') === 'true') {
+      return false;
+    }
+    return true;
   }
 
   function dispatchEnter(editable) {
