@@ -190,11 +190,22 @@
   }
 
   function isPlainEnter(event) {
-    return !event.ctrlKey && !event.metaKey;
+    return !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+  }
+
+  function isSendShortcut(event) {
+    return event.ctrlKey || event.metaKey;
+  }
+
+  function isNativeNewlineShortcut(event) {
+    return event.shiftKey || event.altKey;
   }
 
   function shouldSendOnEnter(event) {
-    return isSendModeEnterSends() ? isPlainEnter(event) : !isPlainEnter(event);
+    if (isNativeNewlineShortcut(event)) {
+      return false;
+    }
+    return isSendModeEnterSends() ? isPlainEnter(event) : isSendShortcut(event);
   }
 
   function getMessengerCompositionGuardMs() {
@@ -247,6 +258,10 @@
         return;
       }
 
+      if (isNativeNewlineShortcut(event)) {
+        return;
+      }
+
       // Messenger's native beforeinput fallback is unreliable immediately after IME composition.
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -260,8 +275,8 @@
         return;
       }
 
-      // These editors use JS handlers for Enter-to-send. Block those handlers but keep the browser's
-      // native Enter behavior (newline/paragraph) to avoid fighting editor state management.
+      // These editors use JS handlers for Enter-to-send. ChatGPT needs an explicit newline now;
+      // Perplexity/Claude still keep native plain-Enter editing unless the shortcut is inverted.
       if (shouldSendOnEnter(event)) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -270,9 +285,13 @@
         return;
       }
 
-      if (!isPlainEnter(event)) {
+      if (isNativeNewlineShortcut(event)) {
+        return;
+      }
+
+      if (site === 'chatgpt' || !isPlainEnter(event)) {
         event.preventDefault();
-        insertNewline(editable);
+        insertNewline(editable, { editorShortcut: site === 'chatgpt' });
       }
       event.stopImmediatePropagation();
       enterHandledOnKeydown = true;
@@ -287,6 +306,9 @@
         event.preventDefault();
         event.stopImmediatePropagation();
         triggerSend(editable);
+        return;
+      }
+      if (isNativeNewlineShortcut(event)) {
         return;
       }
       if (!isPlainEnter(event)) {
@@ -1030,7 +1052,7 @@
     return node && node.nodeType === Node.ELEMENT_NODE;
   }
 
-  function insertNewline(editable) {
+  function insertNewline(editable, options = {}) {
     const tag = editable.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT') {
       insertText(editable, '\n');
@@ -1038,6 +1060,11 @@
     }
 
     if (editable.isContentEditable) {
+      if (options.editorShortcut) {
+        dispatchEditorNewlineShortcut(editable);
+        return;
+      }
+
       const inserted = document.execCommand('insertLineBreak') ||
         document.execCommand('insertText', false, '\n');
       if (!inserted) {
@@ -1088,6 +1115,45 @@
       selection.addRange(range);
     } else {
       editable.appendChild(document.createElement('br'));
+    }
+  }
+
+  function dispatchEditorNewlineShortcut(editable) {
+    ignoreSynthetic = true;
+    try {
+      const beforeHtml = editable.innerHTML;
+      editable.focus({ preventScroll: true });
+      const eventInit = {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true
+      };
+      const lineBreakEvent = new InputEvent('beforeinput', {
+        inputType: 'insertLineBreak',
+        bubbles: true,
+        cancelable: true
+      });
+      const keydownHandled = !editable.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+      editable.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+      const lineBreakHandled = !editable.dispatchEvent(lineBreakEvent);
+      if (keydownHandled || lineBreakHandled || editable.innerHTML !== beforeHtml) {
+        editable.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+        return true;
+      }
+      const paragraphEvent = new InputEvent('beforeinput', {
+        inputType: 'insertParagraph',
+        bubbles: true,
+        cancelable: true
+      });
+      const paragraphHandled = !editable.dispatchEvent(paragraphEvent);
+      editable.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+      return paragraphHandled || editable.innerHTML !== beforeHtml;
+    } finally {
+      ignoreSynthetic = false;
     }
   }
 
