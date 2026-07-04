@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SILHack-dev Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <div>
+        <h1>SILHack-dev</h1>
+        <p>AIチャットとChatworkの入力補助を調整します。</p>
+      </div>
+      <button id="reset" type="button" class="secondary">初期値に戻す</button>
+    </header>
+
+    <section class="section">
+      <h2>対応サイト</h2>
+      <div class="site-grid" id="site-toggles"></div>
+    </section>
+
+    <section class="section">
+      <h2>送信キー</h2>
+      <div class="segmented" role="radiogroup" aria-label="送信キー">
+        <label>
+          <input type="radio" name="sendMode" value="newline">
+          <span>Enterで改行</span>
+        </label>
+        <label>
+          <input type="radio" name="sendMode" value="send">
+          <span>Enterで送信</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Gemini</h2>
+      <label class="field">
+        <span>優先モード</span>
+        <select id="geminiPreferredMode">
+          <option value="pro">Pro</option>
+          <option value="thinking">思考</option>
+          <option value="fast">高速</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="section">
+      <h2>Messenger</h2>
+      <label class="field">
+        <span>IME確定ガード</span>
+        <input id="messengerCompositionGuardMs" type="number" min="0" max="1000" step="10">
+        <small>ミリ秒。0で無効。</small>
+      </label>
+    </section>
+
+    <section class="section">
+      <h2>Chatwork</h2>
+      <label class="toggle-row">
+        <input id="chatworkMarkdownAutoPaste" type="checkbox">
+        <span>Markdown貼り付けを自動でChatworkタグに変換</span>
+      </label>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="../js/settings.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -16,6 +16,12 @@
       prefix: '[hr]',
       suffix: '',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="2" y1="12" x2="22" y2="12"/></svg>`
+    },
+    {
+      label: 'MD',
+      action: 'markdown',
+      title: 'Markdown to Chatwork',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M6 15V9l3 4 3-4v6"/><path d="M17 9v6"/><path d="m14 12 3 3 3-3"/></svg>`
     }
   ];
 
@@ -28,6 +34,13 @@
   const TOOLBAR_ID_CHAT = 'silhack-chatwork-tags';
   const TOOLBAR_ID_OVERVIEW = 'silhack-chatwork-tags-overview';
 
+  const settingsHelper = globalThis.SILHackSettings;
+  let runtimeSettings = settingsHelper?.normalizeSettings
+    ? settingsHelper.normalizeSettings()
+    : {
+        sites: { chatwork: true },
+        chatworkMarkdownAutoPaste: false
+      };
   let currentEditable = null;
   let rafId = null;
 
@@ -37,16 +50,71 @@
     }
     rafId = requestAnimationFrame(() => {
       rafId = null;
+      if (!isChatworkEnabled()) {
+        removeToolbars();
+        return;
+      }
       attachToolbar();
       attachOverviewToolbar();
     });
   };
 
+  boot();
   const observer = new MutationObserver(scheduleAttach);
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener('resize', scheduleAttach);
   document.addEventListener('scroll', scheduleAttach, true);
+  document.addEventListener('paste', handlePaste, true);
   scheduleAttach();
+
+  function boot() {
+    const settingsPromise = settingsHelper?.loadSettings
+      ? settingsHelper.loadSettings()
+      : Promise.resolve(runtimeSettings);
+    settingsPromise
+      .then((settings) => {
+        runtimeSettings = normalizeRuntimeSettings(settings);
+        scheduleAttach();
+      })
+      .catch(() => {
+        runtimeSettings = normalizeRuntimeSettings(runtimeSettings);
+        scheduleAttach();
+      });
+    registerSettingsChangeListener();
+  }
+
+  function registerSettingsChangeListener() {
+    if (!globalThis.chrome?.storage?.onChanged || !settingsHelper?.STORAGE_KEY) {
+      return;
+    }
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync' || !changes[settingsHelper.STORAGE_KEY]) {
+        return;
+      }
+      runtimeSettings = normalizeRuntimeSettings(changes[settingsHelper.STORAGE_KEY].newValue);
+      scheduleAttach();
+    });
+  }
+
+  function normalizeRuntimeSettings(settings) {
+    if (settingsHelper?.normalizeSettings) {
+      return settingsHelper.normalizeSettings(settings);
+    }
+    return settings || runtimeSettings;
+  }
+
+  function isChatworkEnabled() {
+    return runtimeSettings?.sites?.chatwork !== false;
+  }
+
+  function isMarkdownAutoPasteEnabled() {
+    return runtimeSettings?.chatworkMarkdownAutoPaste === true;
+  }
+
+  function removeToolbars() {
+    document.getElementById(TOOLBAR_ID_CHAT)?.remove();
+    document.getElementById(TOOLBAR_ID_OVERVIEW)?.remove();
+  }
 
   function attachToolbar() {
     const editable = document.querySelector(CHAT_EDITABLE_SELECTORS);
@@ -161,15 +229,19 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'silhack-chatwork-tag-btn';
-      button.title = tag.label;
+      button.title = tag.title || tag.label;
       if (tag.icon) {
         button.innerHTML = tag.icon;
       } else {
         button.textContent = tag.label;
       }
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const editable = currentEditable || document.querySelector(CHAT_EDITABLE_SELECTORS);
         if (!editable) {
+          return;
+        }
+        if (tag.action === 'markdown') {
+          await applyMarkdownConversion(editable);
           return;
         }
         applyTag(editable, tag);
@@ -211,13 +283,114 @@
     const body = selected || tag.placeholder || '';
     const insert = `${tag.prefix || ''}${body}${tag.suffix || ''}`;
 
-    editable.value = value.slice(0, start) + insert + value.slice(end);
+    setNativeTextAreaValue(editable, value.slice(0, start) + insert + value.slice(end));
     const cursorStart = start + (tag.prefix || '').length;
     const cursorEnd = cursorStart + body.length;
     editable.selectionStart = cursorStart;
     editable.selectionEnd = cursorEnd;
     editable.dispatchEvent(new Event('input', { bubbles: true }));
     editable.focus();
+  }
+
+  async function applyMarkdownConversion(editable) {
+    if (!editable || editable.tagName !== 'TEXTAREA') {
+      return;
+    }
+
+    const value = editable.value || '';
+    const start = Number.isInteger(editable.selectionStart) ? editable.selectionStart : value.length;
+    const end = Number.isInteger(editable.selectionEnd) ? editable.selectionEnd : value.length;
+    const selected = value.slice(start, end);
+    let source = selected;
+
+    if (!source && navigator.clipboard?.readText) {
+      try {
+        source = await navigator.clipboard.readText();
+      } catch (err) {
+        source = '';
+      }
+    }
+
+    if (!source) {
+      source = value;
+      replaceTextRange(editable, 0, value.length, markdownToChatwork(source));
+      return;
+    }
+
+    replaceTextRange(editable, start, end, markdownToChatwork(source));
+  }
+
+  function handlePaste(event) {
+    if (!isChatworkEnabled() || !isMarkdownAutoPasteEnabled()) {
+      return;
+    }
+    const editable = findTextareaFromEvent(event);
+    if (!editable || !isSupportedChatworkTextarea(editable)) {
+      return;
+    }
+    const text = event.clipboardData?.getData('text/plain') || '';
+    if (!looksLikeMarkdownForChatwork(text)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    replaceTextRange(editable, editable.selectionStart, editable.selectionEnd, markdownToChatwork(text));
+  }
+
+  function findTextareaFromEvent(event) {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [event.target];
+    for (const node of path) {
+      if (node && node.nodeType === Node.ELEMENT_NODE && node.matches?.('textarea')) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  function isSupportedChatworkTextarea(editable) {
+    if (editable.matches(CHAT_EDITABLE_SELECTORS) || editable.id === '_roomInfoDescription') {
+      return true;
+    }
+    const overviewContext = findOverviewContext();
+    return overviewContext?.textarea === editable;
+  }
+
+  function replaceTextRange(editable, start, end, insert) {
+    const value = editable.value || '';
+    const safeStart = Number.isInteger(start) ? start : value.length;
+    const safeEnd = Number.isInteger(end) ? end : safeStart;
+    setNativeTextAreaValue(editable, value.slice(0, safeStart) + insert + value.slice(safeEnd));
+    const nextPos = safeStart + insert.length;
+    editable.selectionStart = nextPos;
+    editable.selectionEnd = nextPos;
+    editable.dispatchEvent(new Event('input', { bubbles: true }));
+    editable.focus();
+  }
+
+  function markdownToChatwork(markdown) {
+    let text = String(markdown || '').replace(/\r\n?/g, '\n');
+    text = text.replace(/```[^\n]*\n([\s\S]*?)```/g, (_match, code) => {
+      const body = code.replace(/\n$/, '');
+      return `[code]\n${body}\n[/code]`;
+    });
+    text = text.replace(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/gm, (_match, title) => {
+      return `[title]${title.trim()}[/title]`;
+    });
+    text = text.replace(/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/gm, '[hr]');
+    return text;
+  }
+
+  function looksLikeMarkdownForChatwork(text) {
+    return /```|^\s{0,3}#{1,6}\s+|^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/m.test(text || '');
+  }
+
+  function setNativeTextAreaValue(editable, value) {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(editable, value);
+      return;
+    }
+    editable.value = value;
   }
 
   function ensureStyles() {
@@ -251,6 +424,16 @@
       }
       .silhack-chatwork-tag-btn:hover {
         background: #2b3b4f;
+      }
+      @media (prefers-color-scheme: light) {
+        .silhack-chatwork-tag-btn {
+          border-color: #c7d0dc;
+          background: #f7f9fc;
+          color: #243040;
+        }
+        .silhack-chatwork-tag-btn:hover {
+          background: #edf2f7;
+        }
       }
     `;
     document.head.appendChild(style);
