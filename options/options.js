@@ -11,6 +11,7 @@
   ];
 
   const settingsHelper = globalThis.SILHackSettings;
+  const updateNoticeHelper = globalThis.SILHackUpdateNotice;
   let settings = settingsHelper.normalizeSettings();
   let saveTimerId = 0;
 
@@ -21,6 +22,11 @@
   const chatworkMarkdownAutoPaste = document.getElementById('chatworkMarkdownAutoPaste');
   const resetButton = document.getElementById('reset');
   const openOptionsButton = document.getElementById('openOptions');
+  const updateNotice = document.getElementById('updateNotice');
+  const updateNoticeTitle = document.getElementById('updateNoticeTitle');
+  const updateNoticeVersion = document.getElementById('updateNoticeVersion');
+  const updateNoticeList = document.getElementById('updateNoticeList');
+  const dismissUpdateNotice = document.getElementById('dismissUpdateNotice');
 
   initialize();
 
@@ -29,6 +35,7 @@
     settings = await settingsHelper.loadSettings();
     render();
     bindEvents();
+    await renderUpdateNotice();
   }
 
   function buildSiteToggles() {
@@ -97,6 +104,10 @@
         }
       });
     }
+
+    if (dismissUpdateNotice) {
+      dismissUpdateNotice.addEventListener('click', dismissNotice);
+    }
   }
 
   function render() {
@@ -134,5 +145,59 @@
         status.textContent = '';
       }
     }, 1600);
+  }
+
+  async function renderUpdateNotice() {
+    if (!updateNotice || !updateNoticeHelper?.loadPendingNotice) {
+      return;
+    }
+
+    const notice = await updateNoticeHelper.loadPendingNotice();
+    if (!notice) {
+      updateNotice.hidden = true;
+      return;
+    }
+
+    updateNoticeTitle.textContent = `SILHack-dev v${notice.version}`;
+    updateNoticeVersion.textContent = notice.previousVersion
+      ? `v${notice.previousVersion} から更新`
+      : '更新内容';
+    updateNoticeList.textContent = '';
+    for (const note of notice.notes) {
+      const item = document.createElement('li');
+      item.textContent = note;
+      updateNoticeList.appendChild(item);
+    }
+    updateNotice.hidden = false;
+  }
+
+  async function dismissNotice() {
+    const notice = await updateNoticeHelper.loadPendingNotice();
+    if (!notice) {
+      updateNotice.hidden = true;
+      return;
+    }
+
+    const markedByBackground = await sendMarkNoticeSeen(notice.version);
+    if (!markedByBackground) {
+      await updateNoticeHelper.markSeen(notice.version);
+    }
+    updateNotice.hidden = true;
+  }
+
+  function sendMarkNoticeSeen(version) {
+    return new Promise((resolve) => {
+      if (!globalThis.chrome?.runtime?.sendMessage) {
+        resolve(false);
+        return;
+      }
+
+      chrome.runtime.sendMessage({
+        type: updateNoticeHelper.MARK_SEEN_MESSAGE,
+        version
+      }, (response) => {
+        resolve(!chrome.runtime.lastError && response?.ok === true);
+      });
+    });
   }
 })();
