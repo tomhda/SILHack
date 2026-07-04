@@ -11,7 +11,7 @@
       'サイトごとのON/OFFと送信キー切替に対応',
       'Geminiの優先モードをPro/思考/高速から選択可能',
       'ChatworkでMarkdownをChatworkタグに変換',
-      'ポップアップ/サイドパネルから設定を変更'
+      'ポップアップ/設定画面から設定を変更'
     ]
   };
   const RELEASE_NOTES = {};
