@@ -31,7 +31,14 @@ async function handleInstalled(details) {
     return;
   }
 
-  await updateNotice.saveNotice(updateNotice.buildNotice(version, details.previousVersion));
+  const notice = updateNotice.buildNotice(version, details.previousVersion);
+  if (!notice.notes.length) {
+    await updateNotice.markSeen(version);
+    await clearUpdateBadge();
+    return;
+  }
+
+  await updateNotice.saveNotice(notice);
   await refreshUpdateBadge();
 }
 
