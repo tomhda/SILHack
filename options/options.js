@@ -23,6 +23,7 @@
   const resetButton = document.getElementById('reset');
   const openOptionsButton = document.getElementById('openOptions');
   const updateNotice = document.getElementById('updateNotice');
+  const updateNoticeLabel = document.getElementById('updateNoticeLabel');
   const updateNoticeTitle = document.getElementById('updateNoticeTitle');
   const updateNoticeVersion = document.getElementById('updateNoticeVersion');
   const updateNoticeList = document.getElementById('updateNoticeList');
@@ -158,8 +159,9 @@
       return;
     }
 
+    updateNoticeLabel.textContent = notice.kind === 'install' ? 'インストールしました' : '更新しました';
     updateNoticeTitle.textContent = `SILHack-dev v${notice.version}`;
-    updateNoticeVersion.textContent = '主なアップデート';
+    updateNoticeVersion.textContent = notice.kind === 'install' ? '主な機能' : '主なアップデート';
     updateNoticeList.textContent = '';
     for (const note of notice.notes) {
       const item = document.createElement('li');
