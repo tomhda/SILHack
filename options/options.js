@@ -159,9 +159,7 @@
     }
 
     updateNoticeTitle.textContent = `SILHack-dev v${notice.version}`;
-    updateNoticeVersion.textContent = notice.previousVersion
-      ? `v${notice.previousVersion} から更新`
-      : '更新内容';
+    updateNoticeVersion.textContent = '主なアップデート';
     updateNoticeList.textContent = '';
     for (const note of notice.notes) {
       const item = document.createElement('li');
