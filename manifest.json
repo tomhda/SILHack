@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SILHack-dev",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Change Enter key behavior and add quick formatting helpers for chat input fields.",
   "permissions": ["storage"],
   "options_page": "options/options.html",
