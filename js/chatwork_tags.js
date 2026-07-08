@@ -63,6 +63,7 @@
   const observer = new MutationObserver(scheduleAttach);
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener('resize', scheduleAttach);
+  document.addEventListener('wheel', containSidebarScrollChain, { capture: true, passive: false });
   document.addEventListener('paste', handlePaste, true);
   scheduleAttach();
 
@@ -113,6 +114,56 @@
   function removeToolbars() {
     document.getElementById(TOOLBAR_ID_CHAT)?.remove();
     document.getElementById(TOOLBAR_ID_OVERVIEW)?.remove();
+  }
+
+  function containSidebarScrollChain(event) {
+    if (!isChatworkEnabled() || event.defaultPrevented || !event.deltaY) {
+      return;
+    }
+    const scrollable = findScrollableAncestor(event.target);
+    if (!scrollable || !isLikelySidebarPane(scrollable)) {
+      return;
+    }
+
+    const maxScrollTop = scrollable.scrollHeight - scrollable.clientHeight;
+    const scrollTop = scrollable.scrollTop;
+    const scrollingUpAtTop = event.deltaY < 0 && scrollTop <= 0;
+    const scrollingDownAtBottom = event.deltaY > 0 && scrollTop >= maxScrollTop - 1;
+
+    if (scrollingUpAtTop || scrollingDownAtBottom) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  function findScrollableAncestor(startNode) {
+    let node = startNode && startNode.nodeType === Node.ELEMENT_NODE
+      ? startNode
+      : startNode?.parentElement;
+    while (node && node !== document.body && node !== document.documentElement) {
+      if (isVerticallyScrollable(node)) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function isVerticallyScrollable(element) {
+    if (!element || element.scrollHeight - element.clientHeight <= 1) {
+      return false;
+    }
+    const overflowY = getComputedStyle(element).overflowY;
+    return overflowY !== 'visible' && overflowY !== 'clip';
+  }
+
+  function isLikelySidebarPane(element) {
+    const rect = element.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return false;
+    }
+    const sidebarLimit = Math.min(560, window.innerWidth * 0.5);
+    return rect.left < sidebarLimit && rect.width <= 560;
   }
 
   function attachToolbar() {
@@ -404,10 +455,18 @@
         gap: 6px;
         align-items: center;
         margin-left: 6px;
+        height: 24px;
+        max-height: 24px;
+        overflow: hidden;
+        vertical-align: middle;
       }
       .silhack-chatwork-tag-btn {
-        font: 12px/1.2 sans-serif;
-        padding: 4px 8px;
+        box-sizing: border-box;
+        width: 28px;
+        height: 24px;
+        min-width: 28px;
+        padding: 0;
+        font: 12px/1 sans-serif;
         border-radius: 6px;
         border: 1px solid #2f3e4f;
         background: #1f2a36;
@@ -416,7 +475,7 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 28px;
+        flex: 0 0 auto;
       }
       .silhack-chatwork-tag-btn svg {
         display: block;
