@@ -5,7 +5,7 @@
   const SEEN_VERSION_KEY = 'silhackUpdateNoticeSeenVersion';
   const MARK_SEEN_MESSAGE = 'silhack:updateNoticeSeen';
   const INSTALL_NOTES = {
-    '0.2.1': [
+    '0.2.2': [
       'ChatGPT / Claude / Gemini / Perplexity / Messengerで送信キーを統一',
       'Enterで改行、Ctrl/Cmd+Enterで送信',
       'サイトごとのON/OFFと送信キー切替に対応',
