@@ -63,7 +63,6 @@
   const observer = new MutationObserver(scheduleAttach);
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener('resize', scheduleAttach);
-  document.addEventListener('scroll', scheduleAttach, true);
   document.addEventListener('paste', handlePaste, true);
   scheduleAttach();
 
