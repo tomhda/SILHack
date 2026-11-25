@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SILHack-dev",
-  "version": "0.2.3",
-  "description": "Change Enter key behavior and add quick formatting helpers for chat input fields.",
+  "version": "0.3.0",
+  "description": "Choose whether Enter, Shift+Enter and Ctrl+Enter send or add a line on each chat site.",
   "permissions": ["storage"],
   "options_page": "options/options.html",
   "action": {
@@ -50,7 +50,7 @@
         "https://www.chatwork.com/*",
         "https://chatwork.com/*"
       ],
-      "js": ["js/settings.js", "js/chatwork_tags.js"],
+      "js": ["js/settings.js", "js/chatwork.js"],
       "run_at": "document_idle"
     }
   ]

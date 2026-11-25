@@ -30,7 +30,9 @@
         'textarea[placeholder*="message" i]'
       ],
       sendButtonSelectors: [
+        'button[data-testid="chat-input-send"]',
         'button[aria-label*="send" i]',
+        'button[aria-label*="送信" i]',
         'button[data-testid*="send" i]',
         'button[type="submit"]'
       ],
@@ -43,7 +45,8 @@
         'div[contenteditable="true"][role="textbox"][aria-label]'
       ],
       sendButtonSelectors: [
-        'button[aria-label*="send" i]'
+        'button[aria-label*="send" i]',
+        'button[aria-label*="送信" i]'
       ]
     },
     perplexity: {
@@ -60,6 +63,7 @@
         'button[aria-label*="send" i]',
         'button[aria-label*="submit" i]',
         'button[aria-label*="ask" i]',
+        'button[aria-label="送信"]',
         'button[type="submit"]'
       ]
     },
@@ -84,16 +88,19 @@
   }
 
   const settingsHelper = globalThis.SILHackSettings;
+  const FALLBACK_SITE_KEYS = { enter: 'newline', shift: 'newline', ctrl: 'send' };
   let runtimeSettings = settingsHelper?.normalizeSettings
     ? settingsHelper.normalizeSettings()
     : {
-        sites: { chatgpt: true, claude: true, gemini: true, perplexity: true, messenger: true, chatwork: true },
-        sendMode: 'newline',
-        geminiPreferredMode: 'pro',
+        sites: { chatgpt: true, claude: true, gemini: true, perplexity: true, messenger: true },
+        keys: {},
+        geminiModel: 'keep',
+        geminiThinkingLevel: 'keep',
         messengerCompositionGuardMs: 160,
         chatworkMarkdownAutoPaste: false
       };
   let listenersRegistered = false;
+  let settingsLoaded = false;
   let config = SITE_CONFIGS[site];
   let editableSelectorList = config.editableSelectors.join(',');
   let ignoreSynthetic = false;
@@ -101,34 +108,63 @@
   let messengerLastComposingEnterAt = 0;
   let messengerCompositionEnterGuardUntil = 0;
   let messengerCompositionEnterGuardTimerId = 0;
-  let geminiModeObserver = null;
-  let geminiModeTimerId = 0;
-  let geminiModeRouteKey = '';
-  let geminiModeAttempts = 0;
-  let geminiModeSettled = false;
-  let geminiModeMenuPending = false;
+  let geminiRouteTimerId = 0;
+  let geminiLastHref = '';
+  let geminiSelectionRunning = false;
+  let geminiSelectionQueued = false;
 
-  const GEMINI_MODE_MAX_ATTEMPTS = 12;
-  const GEMINI_MODE_RETRY_DELAY_MS = 900;
-  const GEMINI_MODE_MENU_DELAY_MS = 220;
-  const GEMINI_MODE_CONFIRM_DELAY_MS = 700;
   const MESSENGER_COMPOSING_ENTER_PROCESSED_WINDOW_MS = 50;
+  const GEMINI_ROUTE_CHECK_MS = 800;
+  const GEMINI_TRIGGER_WAIT_MS = 15000;
+  const GEMINI_MENU_WAIT_MS = 2500;
+  const GEMINI_MODEL_PATTERNS = {
+    auto: /^(auto\b|自動)/i,
+    hydrogen: /hydrogen/i,
+    neon: /\bneon\b/i,
+    carbon: /carbon/i
+  };
+  const GEMINI_MODEL_DESCRIPTION_PATTERNS = {
+    hydrogen: /everyday help|日々の暮らし/i,
+    neon: /deeper analysis|詳細な分析/i,
+    carbon: /code\s*&\s*complex|コードと複雑/i
+  };
+  const GEMINI_THINKING_PATTERNS = {
+    low: /^(low|低)$/i,
+    medium: /^(medium|標準)$/i,
+    high: /^(high|高)$/i
+  };
 
   boot();
 
   function boot() {
+    // Register before the page's own scripts so our capture listeners run first.
+    registerKeyListeners();
     const settingsPromise = settingsHelper?.loadSettings
       ? settingsHelper.loadSettings()
       : Promise.resolve(runtimeSettings);
     settingsPromise
       .then((settings) => {
         runtimeSettings = normalizeRuntimeSettings(settings);
+        settingsLoaded = true;
         registerEventListeners();
       })
       .catch(() => {
         runtimeSettings = normalizeRuntimeSettings(runtimeSettings);
+        settingsLoaded = true;
         registerEventListeners();
       });
+  }
+
+  function registerKeyListeners() {
+    // Listen on window, not document: sites such as ChatGPT bind their own shortcuts
+    // (e.g. Ctrl+Enter = send in background) on window, which fires before document.
+    window.addEventListener('keydown', handleKeydown, true);
+    if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
+      window.addEventListener('keyup', handleKeyup, true);
+    }
+    window.addEventListener('blur', () => {
+      enterHandledOnKeydown = false;
+    }, true);
   }
 
   function registerEventListeners() {
@@ -136,18 +172,11 @@
       return;
     }
     listenersRegistered = true;
-    document.addEventListener('keydown', handleKeydown, true);
-    if (site === 'messenger' || site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
-      document.addEventListener('keyup', handleKeyup, true);
-    }
-    window.addEventListener('blur', () => {
-      enterHandledOnKeydown = false;
-    }, true);
     if (site === 'messenger') {
       document.addEventListener('compositionend', handleCompositionEnd, true);
     }
-    if (site === 'gemini' && isCurrentSiteEnabled()) {
-      startGeminiModeAutoSelect();
+    if (site === 'gemini') {
+      startGeminiModelSelection();
     }
     registerSettingsChangeListener();
   }
@@ -160,16 +189,15 @@
       if (areaName !== 'sync' || !changes[settingsHelper.STORAGE_KEY]) {
         return;
       }
+      const previous = runtimeSettings;
       runtimeSettings = normalizeRuntimeSettings(changes[settingsHelper.STORAGE_KEY].newValue);
       enterHandledOnKeydown = false;
-      if (site === 'gemini') {
-        if (isCurrentSiteEnabled()) {
-          geminiModeSettled = false;
-          geminiModeAttempts = 0;
-          resumeGeminiModeSelection(250);
-        } else {
-          settleGeminiModeSelection();
-        }
+      if (site === 'gemini' && (
+        previous?.sites?.gemini !== runtimeSettings.sites?.gemini ||
+        previous?.geminiModel !== runtimeSettings.geminiModel ||
+        previous?.geminiThinkingLevel !== runtimeSettings.geminiThinkingLevel
+      )) {
+        requestGeminiModelSelection();
       }
     });
   }
@@ -185,27 +213,32 @@
     return runtimeSettings?.sites?.[site] !== false;
   }
 
-  function isSendModeEnterSends() {
-    return runtimeSettings?.sendMode === 'send';
-  }
-
   function isPlainEnter(event) {
     return !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
   }
 
-  function isSendShortcut(event) {
-    return event.ctrlKey || event.metaKey;
-  }
-
-  function isNativeNewlineShortcut(event) {
-    return event.shiftKey || event.altKey;
-  }
-
-  function shouldSendOnEnter(event) {
-    if (isNativeNewlineShortcut(event)) {
-      return false;
+  // Returns which assignable key was pressed: 'enter', 'shift' (Shift+Enter),
+  // 'ctrl' (Ctrl+Enter, or Cmd+Enter on macOS), or null for any other combination.
+  function getEnterCombo(event) {
+    if (event.altKey) {
+      return null;
     }
-    return isSendModeEnterSends() ? isPlainEnter(event) : isSendShortcut(event);
+    const command = event.ctrlKey || event.metaKey;
+    if (command && event.shiftKey) {
+      return null;
+    }
+    if (command) {
+      return 'ctrl';
+    }
+    if (event.shiftKey) {
+      return 'shift';
+    }
+    return 'enter';
+  }
+
+  function getKeyAction(combo) {
+    const siteKeys = runtimeSettings?.keys?.[site] || FALLBACK_SITE_KEYS;
+    return siteKeys[combo] === 'send' ? 'send' : 'newline';
   }
 
   function getMessengerCompositionGuardMs() {
@@ -217,7 +250,7 @@
   }
 
   function handleKeydown(event) {
-    if (ignoreSynthetic) {
+    if (ignoreSynthetic || !settingsLoaded) {
       return;
     }
     if (!isCurrentSiteEnabled()) {
@@ -229,6 +262,10 @@
     if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) {
       return;
     }
+    const combo = getEnterCombo(event);
+    if (!combo) {
+      return;
+    }
 
     const editable = findEditableFromEvent(event, editableSelectorList);
     if (!editable) {
@@ -237,31 +274,36 @@
     if (config.editableGuard && !config.editableGuard(editable)) {
       return;
     }
-    if (site === 'messenger' && isPlainEnter(event) && shouldConsumeMessengerCompositionEnter()) {
+    if (site === 'messenger' && combo === 'enter' && shouldConsumeMessengerCompositionEnter()) {
       event.preventDefault();
       event.stopImmediatePropagation();
       enterHandledOnKeydown = true;
       return;
     }
 
+    // If an autocomplete/mention picker is open, let the site handle Enter to confirm the selection.
+    if (combo === 'enter' && isAutocompletePickerOpen(editable)) {
+      return;
+    }
+
+    if (getKeyAction(combo) === 'send') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      enterHandledOnKeydown = true;
+      triggerSend(editable);
+      return;
+    }
+
+    handleNewlineKey(event, editable, combo);
+  }
+
+  function handleNewlineKey(event, editable, combo) {
+    // Every supported editor already inserts a line break on Shift+Enter.
+    if (combo === 'shift') {
+      return;
+    }
+
     if (site === 'messenger') {
-      // If an autocomplete/mention picker is open, let Messenger handle Enter to confirm selection.
-      if (isPlainEnter(event) && isAutocompletePickerOpen(editable)) {
-        return;
-      }
-
-      if (shouldSendOnEnter(event)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        enterHandledOnKeydown = true;
-        triggerSend(editable);
-        return;
-      }
-
-      if (isNativeNewlineShortcut(event)) {
-        return;
-      }
-
       // Messenger's native beforeinput fallback is unreliable immediately after IME composition.
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -270,65 +312,25 @@
       return;
     }
 
-    if (site === 'perplexity' || site === 'chatgpt' || site === 'claude') {
-      if (isPlainEnter(event) && isAutocompletePickerOpen(editable)) {
-        return;
-      }
-
-      // These editors use JS handlers for Enter-to-send. ChatGPT needs an explicit newline now;
-      // Perplexity/Claude still keep native plain-Enter editing unless the shortcut is inverted.
-      if (shouldSendOnEnter(event)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        enterHandledOnKeydown = true;
-        triggerSend(editable);
-        return;
-      }
-
-      if (isNativeNewlineShortcut(event)) {
-        return;
-      }
-
-      if (site === 'chatgpt' || !isPlainEnter(event)) {
-        event.preventDefault();
-        insertNewline(editable, { editorShortcut: site === 'chatgpt' });
-      }
+    if (site === 'chatgpt') {
+      event.preventDefault();
       event.stopImmediatePropagation();
       enterHandledOnKeydown = true;
+      insertNewline(editable, { editorShortcut: true });
       return;
     }
 
-    if (site === 'gemini') {
-      if (isPlainEnter(event) && isAutocompletePickerOpen(editable)) {
-        return;
-      }
-      if (shouldSendOnEnter(event)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        triggerSend(editable);
-        return;
-      }
-      if (isNativeNewlineShortcut(event)) {
-        return;
-      }
-      if (!isPlainEnter(event)) {
-        event.preventDefault();
-        insertNewline(editable);
-      }
-      event.stopImmediatePropagation();
-      return;
-    }
-
-    if (shouldSendOnEnter(event)) {
+    // Claude, Perplexity and Gemini: keep the browser's own line break for plain Enter
+    // and only hide the key from the site's send handler.
+    if (combo !== 'enter') {
       event.preventDefault();
-      event.stopPropagation();
-      triggerSend(editable);
-      return;
+      // Let the editor add the break through its own Shift+Enter handling, so the line
+      // matches Shift+Enter. A browser-inserted break replaces the text in Perplexity (Lexical),
+      // adds an extra break in Claude (ProseMirror) and bypasses Gemini's editor (Quill).
+      insertNewline(editable, { editorShortcut: true });
     }
-
-    event.preventDefault();
-    event.stopPropagation();
-    insertNewline(editable);
+    event.stopImmediatePropagation();
+    enterHandledOnKeydown = true;
   }
 
   function handleKeyup(event) {
@@ -412,435 +414,266 @@
     }
   }
 
-  function startGeminiModeAutoSelect() {
-    armGeminiModeObserver();
-    window.addEventListener('focus', () => resumeGeminiModeSelection(400), true);
-    window.addEventListener('pageshow', () => resumeGeminiModeSelection(500), true);
-    window.addEventListener('popstate', () => resumeGeminiModeSelection(500), true);
-    document.addEventListener('focusin', () => resumeGeminiModeSelection(300), true);
-    scheduleGeminiModeSelection(800);
+  // ---- Gemini: pick the preferred model and thinking level -------------------------------
+  //
+  // The mode picker is the button [data-test-id="bard-mode-menu-button"] next to the prompt.
+  // Its text shows the current model and, unless it is Low, the thinking level
+  // ("Neon", "Neon 標準", "Carbon High"). The menu lists the models as menuitemradio items and a
+  // "思考レベル / Thinking level" item that opens a submenu with Low / Medium / High.
+  // Gemini remembers the choice, so the picker is only opened when the button shows something
+  // other than the saved preference.
+
+  function startGeminiModelSelection() {
+    geminiLastHref = window.location.href;
+    if (!geminiRouteTimerId) {
+      geminiRouteTimerId = window.setInterval(checkGeminiRoute, GEMINI_ROUTE_CHECK_MS);
+    }
+    requestGeminiModelSelection();
   }
 
-  function armGeminiModeObserver() {
-    if (geminiModeObserver || !document.documentElement) {
+  function checkGeminiRoute() {
+    const href = window.location.href;
+    if (href === geminiLastHref) {
       return;
     }
-    geminiModeObserver = new MutationObserver(() => {
-      scheduleGeminiModeSelection(450);
-    });
-    geminiModeObserver.observe(document.documentElement, { childList: true, subtree: true });
+    geminiLastHref = href;
+    // Apply again when a new chat opens, but not when a sent message turns /app into /app/<chat id>:
+    // the person may have switched the model by hand for that conversation.
+    if (isGeminiNewChatPath(window.location.pathname)) {
+      requestGeminiModelSelection();
+    }
   }
 
-  function disconnectGeminiModeObserver() {
-    if (!geminiModeObserver) {
+  function isGeminiNewChatPath(pathname) {
+    return /^(\/u\/\d+)?\/(app|gem\/[^/]+)\/?$/.test(pathname || '');
+  }
+
+  function requestGeminiModelSelection() {
+    if (geminiSelectionRunning) {
+      geminiSelectionQueued = true;
       return;
     }
-    geminiModeObserver.disconnect();
-    geminiModeObserver = null;
+    geminiSelectionRunning = true;
+    runGeminiModelSelection()
+      .catch(() => {})
+      .finally(() => {
+        geminiSelectionRunning = false;
+        if (geminiSelectionQueued) {
+          geminiSelectionQueued = false;
+          requestGeminiModelSelection();
+        }
+      });
   }
 
-  function resumeGeminiModeSelection(delayMs) {
-    armGeminiModeObserver();
-    scheduleGeminiModeSelection(delayMs);
-  }
-
-  function settleGeminiModeSelection() {
-    geminiModeSettled = true;
-    geminiModeMenuPending = false;
-    disconnectGeminiModeObserver();
-  }
-
-  function scheduleGeminiModeSelection(delayMs = 250) {
-    if (site !== 'gemini' || !isCurrentSiteEnabled()) {
-      return;
-    }
-    if (geminiModeTimerId) {
-      clearTimeout(geminiModeTimerId);
-    }
-    geminiModeTimerId = window.setTimeout(runGeminiModeSelection, delayMs);
-  }
-
-  function runGeminiModeSelection() {
-    geminiModeTimerId = 0;
+  function getGeminiTarget() {
     if (!isCurrentSiteEnabled()) {
-      settleGeminiModeSelection();
-      return;
-    }
-    const routeKey = `${window.location.pathname}${window.location.search}`;
-    if (routeKey !== geminiModeRouteKey) {
-      geminiModeRouteKey = routeKey;
-      geminiModeAttempts = 0;
-      geminiModeSettled = false;
-      geminiModeMenuPending = false;
-      armGeminiModeObserver();
-    }
-
-    if (geminiModeSettled) {
-      disconnectGeminiModeObserver();
-      return;
-    }
-    if (geminiModeAttempts >= GEMINI_MODE_MAX_ATTEMPTS) {
-      settleGeminiModeSelection();
-      return;
-    }
-
-    geminiModeAttempts += 1;
-    const status = applyBestGeminiMode();
-
-    if (status === 'done') {
-      settleGeminiModeSelection();
-      return;
-    }
-
-    if (status === 'confirm') {
-      geminiModeMenuPending = false;
-      scheduleGeminiModeSelection(GEMINI_MODE_CONFIRM_DELAY_MS);
-      return;
-    }
-
-    if (status === 'wait-menu') {
-      geminiModeMenuPending = true;
-      scheduleGeminiModeSelection(GEMINI_MODE_MENU_DELAY_MS);
-      return;
-    }
-
-    if (geminiModeMenuPending) {
-      geminiModeMenuPending = false;
-    }
-    scheduleGeminiModeSelection(GEMINI_MODE_RETRY_DELAY_MS);
-  }
-
-  function applyBestGeminiMode() {
-    const composer = findGeminiComposer();
-    if (!composer) {
-      return 'retry';
-    }
-
-    const options = findGeminiModeOptions();
-    if (options && options.length > 0) {
-      if (!geminiModeMenuPending) {
-        return 'done';
-      }
-      const best = findBestGeminiModeOption(options);
-      if (!best) {
-        return 'retry';
-      }
-      const selected = options.find((option) => isGeminiModeOptionSelected(option.element));
-      if (selected && selected.element === best.element) {
-        if (geminiModeMenuPending) {
-          selected.element.click();
-        }
-        return 'done';
-      }
-      best.element.click();
-      return 'confirm';
-    }
-
-    const trigger = findGeminiModeTrigger(composer);
-    if (!trigger) {
-      return 'retry';
-    }
-
-    const triggerLabel = readElementLabel(trigger);
-    const triggerScore = scoreGeminiModeText(triggerLabel);
-    if (isLikelyGeminiModeTrigger(trigger, triggerLabel) && triggerScore >= 3000) {
-      return 'done';
-    }
-
-    trigger.click();
-    return 'wait-menu';
-  }
-
-  function findGeminiModeTrigger(composer) {
-    if (!composer) {
       return null;
     }
-    const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
-    let bestCandidate = null;
-
-    for (const candidate of candidates) {
-      if (!isVisible(candidate)) {
-        continue;
-      }
-      const label = readElementLabel(candidate);
-      const score = scoreGeminiModeText(label);
-      if (isGeminiSendButton(candidate, label)) {
-        continue;
-      }
-      if (isGeminiNonModeControl(candidate, label)) {
-        continue;
-      }
-      const hasPopup = candidate.getAttribute('aria-haspopup');
-      const hasPopupMenu = hasPopup === 'menu' || hasPopup === 'listbox';
-      const hasTouchTarget = Boolean(candidate.querySelector('.mat-mdc-button-touch-target'));
-      const isLikelyModeTrigger = isLikelyGeminiModeTrigger(candidate, label);
-      // Strictly limit auto-click targets to likely mode switchers only.
-      if (!isLikelyModeTrigger) {
-        continue;
-      }
-
-      let rank = Math.max(0, score);
-      rank += 2400;
-      if (hasPopupMenu) {
-        rank += 600;
-      }
-      if (hasTouchTarget) {
-        rank += 250;
-      }
-      if (composer) {
-        const proximity = scoreElementProximity(candidate, composer);
-        rank += proximity;
-        const candidateForm = candidate.closest('form');
-        const composerForm = composer.closest('form');
-        if (candidateForm && composerForm && candidateForm === composerForm) {
-          rank += 300;
-        }
-      }
-
-      if (!bestCandidate || rank > bestCandidate.rank) {
-        bestCandidate = { element: candidate, rank };
-      }
-    }
-
-    return bestCandidate ? bestCandidate.element : null;
-  }
-
-  function findGeminiModeOptions() {
-    const containers = Array.from(document.querySelectorAll(
-      '[role="menu"], [role="listbox"], .cdk-overlay-pane, .mat-mdc-select-panel'
-    ));
-    let bestSet = null;
-
-    for (const container of containers) {
-      if (!isVisible(container)) {
-        continue;
-      }
-
-      let optionElements = Array.from(container.querySelectorAll(
-        '[role="menuitemradio"], [role="option"], [role="menuitem"], mat-option, .mat-mdc-option'
-      ));
-      if (optionElements.length === 0) {
-        optionElements = Array.from(container.querySelectorAll('button, [role="button"]'));
-      }
-      const scored = [];
-      for (const optionElement of optionElements) {
-        if (!isVisible(optionElement)) {
-          continue;
-        }
-        if (optionElement.getAttribute('aria-disabled') === 'true') {
-          continue;
-        }
-        if ('disabled' in optionElement && optionElement.disabled) {
-          continue;
-        }
-        const label = readElementLabel(optionElement);
-        const score = scoreGeminiModeText(label);
-        if (score < 0) {
-          continue;
-        }
-        scored.push({ element: optionElement, label, score });
-      }
-
-      if (scored.length < 1) {
-        continue;
-      }
-
-      const maxScore = Math.max(...scored.map((item) => item.score));
-      if (maxScore < 1000) {
-        continue;
-      }
-
-      const ranking = maxScore * 100 + scored.length;
-      if (!bestSet || ranking > bestSet.ranking) {
-        bestSet = { ranking, options: scored };
-      }
-    }
-
-    return bestSet ? bestSet.options : null;
-  }
-
-  function findGeminiComposer() {
-    const composer = document.querySelector(editableSelectorList);
-    if (!composer || !isVisible(composer)) {
+    const model = runtimeSettings?.geminiModel || 'keep';
+    const thinking = runtimeSettings?.geminiThinkingLevel || 'keep';
+    if (model === 'keep' && thinking === 'keep') {
       return null;
     }
-    return composer;
+    return { model, thinking };
   }
 
-  function isLikelyGeminiModeTrigger(element, labelText) {
-    if (!element) {
-      return false;
+  async function runGeminiModelSelection() {
+    if (!getGeminiTarget()) {
+      return;
     }
-    const aria = (element.getAttribute('aria-label') || '').trim();
-    const raw = `${labelText || ''} ${aria}`.trim();
-    if (!raw) {
-      return false;
+    const trigger = await waitForValue(findGeminiModeTrigger, GEMINI_TRIGGER_WAIT_MS);
+    const target = getGeminiTarget();
+    if (!trigger || !target) {
+      return;
     }
-    const hasSwitcherWord = hasGeminiModeSwitcherWord(raw);
-    const hasOpenWord = /open|select|開く|選択|selector|switch|切替/i.test(raw);
-    const hasModeNameWord = /thinking|reason(?:ing)?|flash|fast|\bpro\b|思考|高速|プロ/i.test(raw);
-    if (hasSwitcherWord && hasOpenWord) {
-      return true;
+
+    const focusedComposer = getFocusedGeminiComposer();
+    let changed = false;
+
+    if (target.model !== 'keep' && readGeminiTriggerState(trigger).model !== target.model) {
+      changed = (await selectGeminiModel(target.model)) || changed;
     }
-    if (hasModeNameWord && hasSwitcherWord) {
-      return true;
+
+    const current = readGeminiTriggerState(findGeminiModeTrigger() || trigger);
+    const thinkingAvailable = current.model !== 'auto';
+    if (target.thinking !== 'keep' && thinkingAvailable && current.thinking !== target.thinking) {
+      changed = (await selectGeminiThinkingLevel(target.thinking)) || changed;
     }
-    if (/モード選択/.test(raw)) {
-      return true;
+
+    if (changed && focusedComposer && focusedComposer.isConnected) {
+      focusedComposer.focus({ preventScroll: true });
     }
-    return false;
   }
 
-  function hasGeminiModeSwitcherWord(text) {
+  function findGeminiModeTrigger() {
+    const trigger = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+    if (trigger && isVisible(trigger) && trigger.getAttribute('aria-disabled') !== 'true' && !trigger.disabled) {
+      return trigger;
+    }
+    return null;
+  }
+
+  function getFocusedGeminiComposer() {
+    const active = document.activeElement;
+    if (active && active.matches && active.matches(editableSelectorList)) {
+      return active;
+    }
+    return null;
+  }
+
+  // Reads "Neon", "Neon 標準", "Carbon High" or "自動" from the picker button.
+  function readGeminiTriggerState(trigger) {
+    const text = (trigger?.innerText || trigger?.textContent || '').replace(/\s+/g, ' ').trim();
+    const state = { model: null, thinking: null };
     if (!text) {
-      return false;
+      return state;
     }
-    return /mode|model|モード|モデル/i.test(text);
-  }
-
-  function isGeminiSendButton(element, labelText) {
-    if (!element) {
-      return false;
-    }
-    const text = (labelText || readElementLabel(element)).toLowerCase();
-    if (text.includes('send') || text.includes('送信')) {
-      return true;
-    }
-    if (element.getAttribute('data-testid') === 'send-button') {
-      return true;
-    }
-    if (element.getAttribute('aria-keyshortcuts') === 'Enter') {
-      return true;
-    }
-    return false;
-  }
-
-  function isGeminiNonModeControl(element, labelText) {
-    if (!element) {
-      return false;
-    }
-    const label = (labelText || '').trim();
-    if (!label) {
-      return false;
-    }
-    if (hasGeminiModeSwitcherWord(label)) {
-      return false;
-    }
-
-    const lower = label.toLowerCase();
-    if (
-      lower.includes('main menu') || label.includes('メインメニュー') ||
-      lower.includes('search') || label.includes('検索') || label.includes('チャットを検索') ||
-      lower.includes('setting') || label.includes('設定') || lower.includes('help') || label.includes('ヘルプ') ||
-      lower.includes('upload') || label.includes('アップロード') ||
-      lower.includes('microphone') || label.includes('マイク')
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  function findBestGeminiModeOption(options) {
-    let best = null;
-    for (const option of options) {
-      if (!best || option.score > best.score) {
-        best = option;
+    for (const [model, pattern] of Object.entries(GEMINI_MODEL_PATTERNS)) {
+      if (pattern.test(text)) {
+        state.model = model;
+        break;
       }
     }
-    return best;
-  }
-
-  function isGeminiModeOptionSelected(optionElement) {
-    if (!optionElement || !optionElement.getAttribute) {
-      return false;
+    const words = text.split(' ');
+    if (words.length === 1) {
+      state.thinking = 'low';
+      return state;
     }
-    if (optionElement.getAttribute('aria-checked') === 'true') {
-      return true;
-    }
-    if (optionElement.getAttribute('aria-selected') === 'true') {
-      return true;
-    }
-    const className = typeof optionElement.className === 'string' ? optionElement.className.toLowerCase() : '';
-    if (className.includes('selected') || className.includes('active') || className.includes('checked')) {
-      return true;
-    }
-    if (optionElement.querySelector('.mdc-list-item--selected, .mat-mdc-option-active, .mat-pseudo-checkbox-checked')) {
-      return true;
-    }
-    return false;
-  }
-
-  function readElementLabel(element) {
-    if (!element) {
-      return '';
-    }
-    const parts = [
-      element.getAttribute && element.getAttribute('aria-label'),
-      element.getAttribute && element.getAttribute('title'),
-      element.getAttribute && element.getAttribute('data-value'),
-      element.innerText,
-      element.textContent
-    ].filter(Boolean);
-    return parts.join(' ').replace(/\s+/g, ' ').trim();
-  }
-
-  function scoreGeminiModeText(text) {
-    if (!text) {
-      return -1;
-    }
-
-    const hasPro = /\bpro\b/i.test(text) || text.includes('プロ');
-    const hasThinking =
-      /\bthinking\b/i.test(text) ||
-      /\breason(?:ing)?\b/i.test(text) ||
-      text.includes('思考');
-    const hasFast =
-      /\bflash\b/i.test(text) ||
-      /\bfast\b/i.test(text) ||
-      text.includes('高速');
-    const hasModelWord = /\bmodel\b/i.test(text) || text.includes('モデル');
-
-    let mode = '';
-    if (hasPro) {
-      mode = 'pro';
-    } else if (hasThinking) {
-      mode = 'thinking';
-    } else if (hasFast) {
-      mode = 'fast';
-    } else if (hasModelWord) {
-      mode = 'model';
-    } else {
-      return -1;
-    }
-    const modeRanks = getGeminiModeRanks();
-    const tier = modeRanks[mode] ?? -1;
-    if (tier < 0) {
-      return -1;
-    }
-
-    const versionMatches = text.match(/[0-9]+(?:\.[0-9]+)?/g);
-    let versionBonus = 0;
-    if (versionMatches && versionMatches.length > 0) {
-      const versions = versionMatches
-        .map((value) => Number.parseFloat(value))
-        .filter((value) => Number.isFinite(value));
-      if (versions.length > 0) {
-        versionBonus = Math.max(...versions);
+    const levelText = words.slice(1).join(' ');
+    for (const [level, pattern] of Object.entries(GEMINI_THINKING_PATTERNS)) {
+      if (pattern.test(levelText)) {
+        state.thinking = level;
+        break;
       }
     }
-
-    return tier * 1000 + versionBonus;
+    return state;
   }
 
-  function getGeminiModeRanks() {
-    const preferred = runtimeSettings?.geminiPreferredMode || 'pro';
-    if (preferred === 'fast') {
-      return { fast: 3, pro: 2, thinking: 1, model: 0 };
+  async function selectGeminiModel(model) {
+    const items = await openGeminiModeMenu();
+    if (!items) {
+      return false;
     }
-    if (preferred === 'thinking') {
-      return { thinking: 3, pro: 2, fast: 1, model: 0 };
+    const option = items.find((item) => item.getAttribute('role') === 'menuitemradio' && matchesGeminiModel(item, model));
+    if (!option) {
+      closeGeminiModeMenu();
+      return false;
     }
-    return { pro: 3, thinking: 2, fast: 1, model: 0 };
+    const alreadySelected = option.getAttribute('aria-checked') === 'true';
+    option.click();
+    await waitForValue(() => !isGeminiModeMenuOpen(), GEMINI_MENU_WAIT_MS);
+    if (isGeminiModeMenuOpen()) {
+      closeGeminiModeMenu();
+    }
+    return !alreadySelected;
+  }
+
+  async function selectGeminiThinkingLevel(level) {
+    const items = await openGeminiModeMenu();
+    if (!items) {
+      return false;
+    }
+    const submenuOpener = items.find((item) => item.getAttribute('aria-haspopup') === 'true');
+    if (!submenuOpener) {
+      closeGeminiModeMenu();
+      return false;
+    }
+    submenuOpener.click();
+    const option = await waitForValue(() => findVisibleGeminiThinkingOption(level), GEMINI_MENU_WAIT_MS);
+    if (!option) {
+      closeGeminiModeMenu();
+      return false;
+    }
+    const alreadySelected = option.getAttribute('aria-checked') === 'true';
+    option.click();
+    await waitForValue(() => !isGeminiModeMenuOpen(), GEMINI_MENU_WAIT_MS);
+    if (isGeminiModeMenuOpen()) {
+      closeGeminiModeMenu();
+    }
+    return !alreadySelected;
+  }
+
+  async function openGeminiModeMenu() {
+    if (!isGeminiModeMenuOpen()) {
+      const trigger = findGeminiModeTrigger();
+      if (!trigger) {
+        return null;
+      }
+      trigger.click();
+    }
+    return waitForValue(() => {
+      const items = getGeminiModeMenuItems();
+      return items.some((item) => item.getAttribute('role') === 'menuitemradio' && isVisible(item)) ? items : null;
+    }, GEMINI_MENU_WAIT_MS);
+  }
+
+  function closeGeminiModeMenu() {
+    const trigger = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+    if (trigger && isGeminiModeMenuOpen()) {
+      trigger.click();
+    }
+  }
+
+  function isGeminiModeMenuOpen() {
+    const trigger = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+    return trigger?.getAttribute('aria-expanded') === 'true' || getGeminiModeMenuItems().some((item) => isVisible(item));
+  }
+
+  function getGeminiModeMenuItems() {
+    return Array.from(document.querySelectorAll('gem-menu gem-menu-item, .cdk-overlay-pane [role="menuitemradio"], .cdk-overlay-pane [role="menuitem"]'))
+      .filter((item, index, list) => list.indexOf(item) === index);
+  }
+
+  function readGeminiItemTitle(item) {
+    const text = (item.innerText || item.textContent || '').trim();
+    return (text.split('\n')[0] || '').trim();
+  }
+
+  function matchesGeminiModel(item, model) {
+    const text = (item.innerText || item.textContent || '').replace(/\s+/g, ' ').trim();
+    if (model === 'auto') {
+      return GEMINI_MODEL_PATTERNS.auto.test(readGeminiItemTitle(item));
+    }
+    if (GEMINI_MODEL_PATTERNS[model]?.test(text)) {
+      return true;
+    }
+    return Boolean(GEMINI_MODEL_DESCRIPTION_PATTERNS[model]?.test(text));
+  }
+
+  function findVisibleGeminiThinkingOption(level) {
+    const pattern = GEMINI_THINKING_PATTERNS[level];
+    if (!pattern) {
+      return null;
+    }
+    return getGeminiModeMenuItems().find((item) => (
+      item.getAttribute('role') === 'menuitemradio' &&
+      isVisible(item) &&
+      pattern.test(readGeminiItemTitle(item))
+    )) || null;
+  }
+
+  function waitForValue(read, timeoutMs, intervalMs = 120) {
+    return new Promise((resolve) => {
+      const startedAt = performance.now();
+      const tick = () => {
+        let value = null;
+        try {
+          value = read();
+        } catch (err) {
+          value = null;
+        }
+        if (value) {
+          resolve(value);
+          return;
+        }
+        if (performance.now() - startedAt >= timeoutMs) {
+          resolve(null);
+          return;
+        }
+        window.setTimeout(tick, intervalMs);
+      };
+      tick();
+    });
   }
 
   function scoreElementProximity(a, b) {
@@ -916,6 +749,10 @@
       if (testid.includes('conversation') || testid.includes('composer') || testid.includes('prompt')) {
         return true;
       }
+      const formClass = typeof form.className === 'string' ? form.className.toLowerCase() : '';
+      if (formClass.includes('composer')) {
+        return true;
+      }
       if (findUsableSendButtonInScope(form, SITE_CONFIGS.chatgpt.sendButtonSelectors)) {
         return true;
       }
@@ -949,6 +786,12 @@
     const label = labelRaw.toLowerCase();
     if (label.includes('search') || label.includes('検索')) {
       return false;
+    }
+
+    // Claude's own composer. The send button only appears after text is typed,
+    // so it cannot be the only sign that this is the message box.
+    if ((el.getAttribute('data-testid') || '') === 'chat-input') {
+      return true;
     }
 
     const form = el.closest('form');
@@ -1132,15 +975,20 @@
         bubbles: true,
         cancelable: true
       };
+      const keydownHandled = !editable.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+      if (keydownHandled || editable.innerHTML !== beforeHtml) {
+        // The editor already added the break; a second event would add another one.
+        editable.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+        return true;
+      }
+      editable.dispatchEvent(new KeyboardEvent('keypress', eventInit));
       const lineBreakEvent = new InputEvent('beforeinput', {
         inputType: 'insertLineBreak',
         bubbles: true,
         cancelable: true
       });
-      const keydownHandled = !editable.dispatchEvent(new KeyboardEvent('keydown', eventInit));
-      editable.dispatchEvent(new KeyboardEvent('keypress', eventInit));
       const lineBreakHandled = !editable.dispatchEvent(lineBreakEvent);
-      if (keydownHandled || lineBreakHandled || editable.innerHTML !== beforeHtml) {
+      if (lineBreakHandled || editable.innerHTML !== beforeHtml) {
         editable.dispatchEvent(new KeyboardEvent('keyup', eventInit));
         return true;
       }
@@ -1258,6 +1106,7 @@
     addUniqueElement(scopes, editable.closest('[data-testid*="prompt" i]'));
     addUniqueElement(scopes, editable.closest('[data-testid*="chat-input" i]'));
     addUniqueElement(scopes, editable.closest('[class*="composer" i]'));
+    addUniqueElement(scopes, editable.closest('fieldset'));
     addUniqueElement(scopes, editable.parentElement);
     return scopes;
   }

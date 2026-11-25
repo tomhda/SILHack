@@ -29,37 +29,36 @@
     </section>
 
     <section class="section">
-      <h2>対応サイト</h2>
-      <div class="site-grid" id="site-toggles"></div>
+      <h2>キーの割り当て</h2>
+      <table class="key-table" id="keyTable"></table>
     </section>
 
-    <section class="section">
-      <h2>送信キー</h2>
-      <div class="segmented" role="radiogroup" aria-label="送信キー">
-        <label>
-          <input type="radio" name="sendMode" value="newline">
-          <span>Enterで改行</span>
+    <section class="section" id="geminiSection">
+      <h2>Gemini</h2>
+      <div class="field-list">
+        <label class="field">
+          <span>モデル</span>
+          <select id="geminiModel">
+            <option value="keep">変更しない</option>
+            <option value="auto">自動モード</option>
+            <option value="hydrogen">Hydrogen</option>
+            <option value="neon">Neon</option>
+            <option value="carbon">Carbon</option>
+          </select>
         </label>
-        <label>
-          <input type="radio" name="sendMode" value="send">
-          <span>Enterで送信</span>
+        <label class="field" id="geminiThinkingField">
+          <span>思考レベル</span>
+          <select id="geminiThinkingLevel">
+            <option value="keep">変更しない</option>
+            <option value="low">低</option>
+            <option value="medium">標準</option>
+            <option value="high">高</option>
+          </select>
         </label>
       </div>
     </section>
 
-    <section class="section">
-      <h2>Gemini</h2>
-      <label class="field">
-        <span>優先モード</span>
-        <select id="geminiPreferredMode">
-          <option value="pro">Pro</option>
-          <option value="thinking">思考</option>
-          <option value="fast">高速</option>
-        </select>
-      </label>
-    </section>
-
-    <section class="section">
+    <section class="section" id="messengerSection">
       <h2>Messenger</h2>
       <label class="field">
         <span>IME確定ガード</span>
@@ -70,10 +69,16 @@
 
     <section class="section">
       <h2>Chatwork</h2>
-      <label class="toggle-row">
-        <input id="chatworkMarkdownAutoPaste" type="checkbox">
-        <span>Markdown貼り付けを自動でChatworkタグに変換</span>
-      </label>
+      <div class="field-list">
+        <label class="toggle-row">
+          <input id="chatworkSidebarScrollLock" type="checkbox">
+          <span>ルーム一覧の端でスクロールを止める</span>
+        </label>
+        <label class="toggle-row">
+          <input id="chatworkMarkdownAutoPaste" type="checkbox">
+          <span>Markdown貼り付けを自動でChatworkタグに変換</span>
+        </label>
+      </div>
     </section>
 
     <p id="status" class="status" role="status" aria-live="polite"></p>

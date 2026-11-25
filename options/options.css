@@ -23,8 +23,7 @@ body {
 }
 
 body.popup-view {
-  width: 390px;
-  min-height: 540px;
+  width: 440px;
 }
 
 .shell {
@@ -150,19 +149,8 @@ small,
   margin-top: 12px;
 }
 
-.site-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-}
-
-.popup-view .site-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .toggle-row,
-.field,
-.segmented label {
+.field {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -199,27 +187,6 @@ input[type="number"] {
   font: inherit;
 }
 
-.segmented {
-  display: inline-flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.segmented label,
-.site-grid label {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 11px;
-  background: #fbfdf9;
-}
-
-.segmented label:has(input:checked),
-.site-grid label:has(input:checked) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: #1f451e;
-}
-
 button {
   min-height: 36px;
   border: 1px solid var(--border);
@@ -239,6 +206,194 @@ button:hover {
   color: var(--accent-strong);
 }
 
+button:active {
+  background: var(--accent-soft);
+}
+
+select:not(:disabled),
+input[type="number"]:not(:disabled) {
+  cursor: pointer;
+}
+
+select:not(:disabled):hover,
+input[type="number"]:not(:disabled):hover {
+  border-color: var(--accent);
+}
+
+select:focus-visible,
+input[type="number"]:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+select:disabled,
+input:disabled {
+  cursor: default;
+}
+
+.field-list {
+  display: grid;
+  gap: 10px;
+}
+
+.field[hidden] {
+  display: none;
+}
+
+.field select {
+  width: 150px;
+}
+
+.toggle-row {
+  cursor: pointer;
+}
+
+.toggle-row:hover input[type="checkbox"] {
+  outline: 2px solid var(--accent-soft);
+}
+
+.section.is-off .field > span {
+  color: var(--muted);
+}
+
+/* Key assignment table: one row per site, one column per key. */
+.key-table {
+  border-collapse: collapse;
+}
+
+.popup-view .key-table {
+  width: 100%;
+}
+
+.key-table th,
+.key-table td {
+  padding: 5px 0;
+  text-align: center;
+}
+
+.key-table td,
+.key-table thead th:not(.site-col) {
+  padding-left: 24px;
+}
+
+.popup-view .key-table td,
+.popup-view .key-table thead th:not(.site-col) {
+  padding-left: 0;
+}
+
+.key-table thead th {
+  padding-top: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.key-table .site-col {
+  text-align: left;
+  width: 118px;
+}
+
+.key-table tbody tr + tr th,
+.key-table tbody tr + tr td {
+  border-top: 1px solid var(--border);
+}
+
+.site-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.site-toggle:hover input[type="checkbox"] {
+  outline: 2px solid var(--accent-soft);
+}
+
+.key-table tr.is-off .site-toggle span {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.seg label {
+  position: relative;
+  display: block;
+  cursor: pointer;
+}
+
+.seg label + label {
+  border-left: 1px solid var(--border);
+}
+
+.seg input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.seg span {
+  display: block;
+  width: 40px;
+  padding: 4px 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.seg label:hover span {
+  background: #f1f7ee;
+  color: var(--text);
+}
+
+.seg label:active span {
+  background: #dcefd6;
+}
+
+.seg input:checked + span {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.seg input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.key-table tr.is-off .seg {
+  opacity: 0.45;
+}
+
+.key-table tr.is-off .seg label {
+  cursor: default;
+}
+
+.key-table tr.is-off .seg label:hover span,
+.key-table tr.is-off .seg label:active span {
+  background: transparent;
+  color: var(--muted);
+}
+
+.key-table tr.is-off .seg input:checked + span {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 .page-actions {
   display: flex;
   align-items: center;
@@ -248,11 +403,16 @@ button:hover {
 }
 
 .popup-view .page-actions {
-  max-width: 148px;
+  flex-wrap: nowrap;
 }
 
 .popup-view button {
   width: 100%;
+}
+
+/* Side by side keeps the popup within Chrome's 600px popup height. */
+.popup-view .page-actions button {
+  width: 72px;
 }
 
 .status {

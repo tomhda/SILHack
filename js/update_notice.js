@@ -5,16 +5,22 @@
   const SEEN_VERSION_KEY = 'silhackUpdateNoticeSeenVersion';
   const MARK_SEEN_MESSAGE = 'silhack:updateNoticeSeen';
   const INSTALL_NOTES = {
-    '0.2.3': [
-      'ChatGPT / Claude / Gemini / Perplexity / Messengerで送信キーを統一',
-      'Enterで改行、Ctrl/Cmd+Enterで送信',
-      'サイトごとのON/OFFと送信キー切替に対応',
-      'Geminiの優先モードをPro/思考/高速から選択可能',
-      'ChatworkでMarkdownをChatworkタグに変換',
+    '0.3.0': [
+      'ChatGPT / Claude / Gemini / Perplexity / MessengerでEnterキーの動作をそろえる',
+      '初期設定はEnter・Shift+Enterで改行、Ctrl+Enter（Macは⌘+Enter）で送信',
+      'サイトごとに各キーの動作（改行・送信）を変更可能',
+      'Geminiを開いたときのモデルと思考レベルを指定可能',
+      'ChatworkでMarkdownの貼り付けをChatworkタグに変換可能',
       'ポップアップ/設定画面から設定を変更'
     ]
   };
-  const RELEASE_NOTES = {};
+  const RELEASE_NOTES = {
+    '0.3.0': [
+      'サイトごとにEnter / Shift+Enter / Ctrl+Enterの動作（改行・送信）を選べるように変更',
+      'Geminiの新しいモデル選択（Hydrogen / Neon / Carbon・思考レベル）に対応',
+      'ChatGPT / Claude / Gemini / Perplexityの最新の画面に合わせてキー操作を修正'
+    ]
+  };
 
   function getCurrentVersion() {
     return globalThis.chrome?.runtime?.getManifest?.().version || '';
